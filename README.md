@@ -164,10 +164,10 @@ The script generates discovery packets using the VITA-49 standard format:
 The payload is a space-separated list of key=value pairs following FlexRadio's discovery protocol:
 
 ```
-discovery_protocol_version=3.1.0.2 model=FLEX-6600 serial=xxxx-xxxx-xxxx-xxxx 
-version=4.1.5.39794 nickname=Lake6600 callsign=WX7V ip=192.168.0.101 port=4992 
+discovery_protocol_version=3.1.0.2 model=xxxx-xxxx serial=xxxx-xxxx-xxxx-xxxx 
+version=4.1.5.39794 nickname=xxxxx callsign=xxxx ip=192.168.x.xxx port=4992 
 status=Available inuse_ip= inuse_host= max_licensed_version=v4 
-radio_license_id=00-1C-2D-05-0A-5A fpc_mac= wan_connected=1 licensed_clients=2 
+radio_license_id=00-1C-2D-xx-xx-xx fpc_mac= wan_connected=1 licensed_clients=2 
 available_clients=2 max_panadapters=4 available_panadapters=4 max_slices=4 
 available_slices=4 gui_client_ips= gui_client_hosts= gui_client_programs= 
 gui_client_stations= gui_client_handles= min_software_version=2.1.20.0 
@@ -191,6 +191,8 @@ Use **Wireshark** or **tcpdump** to capture a packet:
 ```
 udp.port == 4992 and ip.src == <your_radio_ip>
 ```
+
+## Wireshark filter syntax example: host 192.168.x.xxx and port 4992
 
 **tcpdump Command:**
 ```bash
