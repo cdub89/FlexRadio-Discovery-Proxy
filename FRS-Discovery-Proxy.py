@@ -93,7 +93,7 @@ try:
                 if last_status != current_status:
                     logging.info(f"{current_time} - Ping successful and Radio Broadcast message sent.")
                     last_status = current_status
-                time.sleep(31)
+                time.sleep(10)
             else:
                 print(f"{current_time} - Ping failed, will retry in 30 seconds...")
                 if last_status != current_status:
