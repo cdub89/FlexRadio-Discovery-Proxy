@@ -1,4 +1,5 @@
-# Fork of **VA3MW** FlexRadio Broadcast Wedge.  Enhanced by Chris L White, WX7V 2026.
+# Fork of **VA3MW** FlexRadio Broadcast Wedge (2024)
+* Enhanced by Chris L White, WX7V 2026.
 # Updated documentation and logic to help dynamically build the VITA-49 discovery packet for SmartSDR 4.1.5
 
 ## WARNING: USE AT YOUR OWN RISK
