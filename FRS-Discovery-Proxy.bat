@@ -1,1 +1,1 @@
-python FRS-Wedge.py
+python FRS-Discovery-Proxy.py

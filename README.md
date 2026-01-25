@@ -1,8 +1,10 @@
-# Fork of **VA3MW** FlexRadio Broadcast Wedge (2024)
-* Enhanced by Chris L White, WX7V 2026.
-# Updated documentation and logic to help dynamically build the VITA-49 discovery packet for SmartSDR 4.1.5
+# Fork of **VA3MW** FlexRadio Broadcast Wedge (2024), by Chris L White, WX7V 2026.
+# Updated documentation and logic to help dynamically build the VITA-49 discovery packet
+# Updated from SmartSDR 3.8.2 to SmartSDR 4.1.5 (current)
 
-## WARNING: USE AT YOUR OWN RISK
+## The Warning below was included by Mike.   This fork is covered by the MIT license (please review prior to use)
+
+## WARNING: USE AT YOUR OWN RISK -
 
 This script is provided "as is," without warranty of any kind, express or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose, and noninfringement. In no event shall the authors or copyright holders be liable for any claim, damages, or other liability, whether in an action of contract, tort, or otherwise, arising from, 
 out of, or in connection with the script or the use or other dealings in the script.
@@ -109,9 +111,9 @@ To obtain the correct values for your radio:
 1. **Edit config.ini** with your radio's parameters
 2. **Run the script**:
    ```bash
-   python FRS-Wedge.py
+   python FRS-Discovery-Proxy.py
    ```
-   Or on Windows, double-click `FRS-Wedge.bat`
+   Or on Windows, double-click `FRS-Discovery-Proxy.bat`
 
 3. **Verify operation**: Console should display:
    ```

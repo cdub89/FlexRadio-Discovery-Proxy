@@ -7,6 +7,8 @@ import platform
 import logging
 import struct
 
+__version__ = "1.0.0"
+
 # Configure logging
 logging.basicConfig(filename='broadcast.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -23,32 +25,6 @@ radio_license = config['DEFAULT']['Radio_License']
 
 # Determine the ping command based on the OS
 ping_option = '-n' if platform.system() == 'Windows' else '-c'
-
-# Print the warning message on the screen
-#print("""
-#WARNING: USE AT YOUR OWN RISK
-#
-#This script is provided "as is," without warranty of any kind, express or implied, 
-#including but not limited to the warranties of merchantability, fitness for a 
-#particular purpose, and noninfringement. In no event shall the authors or copyright 
-#holders be liable for any claim, damages, or other liability, whether in an action 
-#of contract, tort, or otherwise, arising from, out of, or in connection with the script 
-#or the use or other dealings in the script.
-#
-#By using this script, you acknowledge and agree that you understand this warning, 
-#and any use of the script is entirely at your own risk. Any damage caused by the 
-#deployment or use of this script is the sole responsibility of the user, and the 
-#authors or distributors of this script cannot be held liable for any adverse 
-#consequences arising therefrom.
-#""")
-
-# Pause the program and ask for user consent
-#user_input = input("Type YES to continue and acknowledge all risks: ")
-
-#if user_input != "YES":
-#    print("User did not acknowledge the risks. Exiting.")
-#    logging.info("User did not acknowledge the risks. Exiting.")
-#    exit()
 
 # Print user settings
 print("\nUser Settings\n")
@@ -119,13 +95,14 @@ try:
                     last_status = current_status
                 time.sleep(31)
             else:
-                print(f"{current_time} - Ping failed, will retry in 10 seconds...")
+                print(f"{current_time} - Ping failed, will retry in 30 seconds...")
                 if last_status != current_status:
                     logging.warning(f"{current_time} - Ping status changed to failed.")
                     last_status = current_status
                 time.sleep(30)
 
         except Exception as e:
+            current_time = datetime.datetime.now().strftime("%H:%M:%S")
             print(f"{current_time} - Error: {e}")
             if last_status != 'exception':
                 logging.error(f"{current_time} - Error during ping or UDP broadcast: {e}")
