@@ -2,7 +2,7 @@
 
 ## Welcome!
 
-**Current Version:** v2.1.0 (Release Candidate)
+**Current Version:** v2.2.0 (Socket Mode Release)
 
 This repository contains the FlexRadio Discovery Proxy for accessing FlexRadio transceivers over VPN or remote connections.
 
@@ -20,13 +20,15 @@ This repository contains the FlexRadio Discovery Proxy for accessing FlexRadio t
 ## Quick Links
 
 ### For New Users
-- **[QUICKSTART_v2.md](QUICKSTART_v2.md)** - Get started with v2.1 in 15 minutes
+- **[QUICKSTART_v2.md](QUICKSTART_v2.md)** - Get started with v2.2 in 15 minutes
 - **[README_v2.md](README_v2.md)** - Complete v2.x documentation
+- **[RELEASE_NOTES_v2.2.0.md](RELEASE_NOTES_v2.2.0.md)** - 🚀 NEW: Socket mode features
 
 ### For Current Users
 - **[README_v2.md](README_v2.md)** - v2.x documentation (client-server)
 - **[HEALTH_CHECK_GUIDE.md](HEALTH_CHECK_GUIDE.md)** - v2.1+ diagnostics guide
-- **[RELEASE_NOTES_v2.1.0.md](RELEASE_NOTES_v2.1.0.md)** - v2.1.0 release notes
+- **[RELEASE_NOTES_v2.2.0.md](RELEASE_NOTES_v2.2.0.md)** - 🚀 NEW: v2.2.0 socket mode
+- **[RELEASE_NOTES_v2.1.0.md](RELEASE_NOTES_v2.1.0.md)** - v2.1.0 health checks
 - **[L3VPN_SOLUTION_GUIDE.md](L3VPN_SOLUTION_GUIDE.md)** - L3 VPN (WireGuard) solution guide
 
 ### For v1.x Users (Migration Required)
@@ -35,10 +37,11 @@ This repository contains the FlexRadio Discovery Proxy for accessing FlexRadio t
 - **[archive/](archive/)** - Archived v1.x files
 
 ### Planning & Future Development
-- **[ENHANCEMENTS_ROADMAP.md](ENHANCEMENTS_ROADMAP.md)** - Planned features for v2.1, v2.2, v3.0
+- **[ENHANCEMENTS_ROADMAP.md](ENHANCEMENTS_ROADMAP.md)** - Planned features for v3.0
 - **[PROGRESS_TRACKER.md](PROGRESS_TRACKER.md)** - ✅ Track implementation progress
-- **[PRIORITY_4_COMPLETION_SUMMARY.md](PRIORITY_4_COMPLETION_SUMMARY.md)** - ✅ Priority 4 completion report
+- **[PRIORITY_1_COMPLETION_SUMMARY.md](PRIORITY_1_COMPLETION_SUMMARY.md)** - ✅ Priority 1 completion report
 - **[PRIORITY_2_COMPLETION_SUMMARY.md](PRIORITY_2_COMPLETION_SUMMARY.md)** - ✅ Priority 2 completion report
+- **[PRIORITY_4_COMPLETION_SUMMARY.md](PRIORITY_4_COMPLETION_SUMMARY.md)** - ✅ Priority 4 completion report
 
 ---
 
@@ -69,8 +72,9 @@ This repository contains the FlexRadio Discovery Proxy for accessing FlexRadio t
 - [README_v2.md](README_v2.md)
 - [QUICKSTART_v2.md](QUICKSTART_v2.md)
 - [HEALTH_CHECK_GUIDE.md](HEALTH_CHECK_GUIDE.md) - v2.1+ diagnostics
-- [RELEASE_NOTES_v2.1.0.md](RELEASE_NOTES_v2.1.0.md)
-- [RELEASE_NOTES_v2.0.0.md](RELEASE_NOTES_v2.0.0.md)
+- [RELEASE_NOTES_v2.2.0.md](RELEASE_NOTES_v2.2.0.md) - 🚀 Socket mode (latest)
+- [RELEASE_NOTES_v2.1.0.md](RELEASE_NOTES_v2.1.0.md) - Health checks
+- [RELEASE_NOTES_v2.0.0.md](RELEASE_NOTES_v2.0.0.md) - Client-server architecture
 - [MIGRATION_GUIDE_v1_to_v2.md](MIGRATION_GUIDE_v1_to_v2.md)
 
 ### v1.x - Single Script Architecture (Deprecated)

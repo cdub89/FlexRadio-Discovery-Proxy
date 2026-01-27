@@ -1,6 +1,6 @@
-# FlexRadio Discovery Proxy v2.0 - Client/Server Architecture
+# FlexRadio Discovery Proxy v2.2 - Client/Server Architecture
 
-**Version:** 2.0.0  
+**Version:** 2.2.0  
 **Author:** Chris L White, WX7V (2026)  
 **Based on:** Original work by VA3MW (2024)  
 **License:** MIT
@@ -15,19 +15,26 @@ This script is provided "as is," without warranty of any kind, express or implie
 
 ---
 
-## What's New in v2.0
+## 🚀 What's New in v2.2
 
-Version 2.0 introduces a **completely redesigned architecture** with separate client and server components:
+Version 2.2 introduces **socket-based communication** for real-time discovery packet streaming:
 
-### v1.x Architecture (Single Script)
-- Generated synthetic discovery packets based on config file
-- Relied on ping to determine radio availability
-- Required manual configuration of radio parameters
+### NEW: Socket Mode (v2.2.0)
+- **Direct TCP Connection**: Real-time packet streaming over L3VPN
+- **Sub-Second Latency**: Eliminates 5-30 second cloud sync delays
+- **Multi-Client Support**: Single server streams to multiple clients
+- **Automatic Reconnection**: Client recovers from connection failures
+- **Dual Mode**: Choose between socket (real-time) or file (cloud sync) modes
+
+### v2.1.0 Features
+- **Health Checks**: Startup diagnostics and periodic monitoring
+- **Better Troubleshooting**: Clear pass/fail/warn indicators
+- **Network Validation**: Automatic connectivity testing
 
 ### v2.0 Architecture (Client/Server)
 - **Server**: Captures **actual** VITA-49 discovery packets from FlexRadio
 - **Client**: Rebroadcasts the real packets to local network
-- **Communication**: File-based via shared drive (network share or cloud sync)
+- **Communication**: Socket-based (new) or file-based via shared drive
 - **Advantages**:
   - Always broadcasts authentic packets with current radio status
   - Automatically tracks radio state changes (in use, available, etc.)

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-FlexRadio Discovery Server v2.1.0
-Captures FlexRadio VITA-49 discovery packets and writes them to a shared file.
+FlexRadio Discovery Server v2.2.3
+Captures FlexRadio VITA-49 discovery packets and streams them to clients or writes to shared file.
 
 This script runs on the remote location where the FlexRadio is located.
-It listens for actual discovery broadcasts and saves them for the client to rebroadcast.
+It listens for actual discovery broadcasts and distributes them via TCP socket or shared file.
 
 Copyright (c) 2026 Chris L White (WX7V)
 Based on original work by VA3MW (2024)
@@ -25,104 +25,302 @@ import logging
 import json
 import os
 import sys
-from health_checks import HealthChecker
+import threading
+import select
+from health_checks import HealthChecker, HealthStatus
 
-__version__ = "2.1.0"
+__version__ = "2.2.3"
 
-# Configure logging
+# Will be reconfigured after loading config
 logging.basicConfig(
     filename='discovery-server.log',
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
-def load_config():
-    """Load configuration from config-v2.ini"""
-    config = configparser.ConfigParser()
+class ClientConnection:
+    """Represents a connected client"""
+    def __init__(self, sock, addr):
+        self.sock = sock
+        self.addr = addr
+        self.connected_at = time.time()
+        self.packets_sent = 0
     
-    if not os.path.exists('config-v2.ini'):
-        print("ERROR: config-v2.ini not found!")
-        logging.error("config-v2.ini not found")
-        sys.exit(1)
-    
-    config.read('config-v2.ini')
-    return config
+    def send_packet(self, data):
+        """Send packet data to client"""
+        try:
+            # Send packet as JSON with newline delimiter
+            json_data = json.dumps(data) + '\n'
+            bytes_data = json_data.encode('utf-8')
+            self.sock.sendall(bytes_data)
+            self.packets_sent += 1
+            # logging.debug(f"Sent {len(bytes_data)} bytes to {self.addr} (packet #{self.packets_sent})")
+            return True
+        except Exception as e:
+            # logging.error(f"Error sending to client {self.addr}: {e}")
+            return False
 
-def parse_discovery_payload(payload):
-    """Parse the space-separated key=value pairs from discovery payload"""
-    try:
-        # Decode bytes to string, strip null bytes
-        payload_str = payload.decode('utf-8', errors='ignore').rstrip('\x00')
+class DiscoveryServer:
+    """Main server class handling both socket and file modes"""
+    def __init__(self, config):
+        self.config = config
+        self.running = False
+        self.clients = []
+        self.clients_lock = threading.Lock()
         
-        # Parse key=value pairs
-        parsed = {}
-        pairs = payload_str.split(' ')
-        for pair in pairs:
-            if '=' in pair:
-                key, value = pair.split('=', 1)
-                parsed[key] = value
+        # Server settings
+        self.listen_address = config['SERVER']['Listen_Address']
+        self.discovery_port = int(config['SERVER']['Discovery_Port'])
+        self.stream_mode = config['SERVER']['Stream_Mode'].lower()
         
-        return parsed
-    except Exception as e:
-        logging.error(f"Error parsing payload: {e}")
-        return {}
-
-def main():
-    print("\n" + "="*70)
-    print(f"FlexRadio Discovery Server v{__version__}")
-    print("="*70)
-    
-    # Load configuration
-    config = load_config()
-    
-    # Server settings
-    listen_address = config['SERVER']['Listen_Address']
-    discovery_port = int(config['SERVER']['Discovery_Port'])
-    shared_file_path = config['SERVER']['Shared_File_Path']
-    update_interval = float(config['SERVER']['Update_Interval'])
-    
-    print("\nServer Configuration:")
-    print(f"  Listen Address: {listen_address}")
-    print(f"  Discovery Port: {discovery_port}")
-    print(f"  Shared File: {shared_file_path}")
-    print(f"  Update Interval: {update_interval}s")
-    
-    logging.info(f"Server v{__version__} started - Listening on {listen_address}:{discovery_port}")
-    
-    # Run startup health checks
-    health_checker = HealthChecker(config, mode='server')
-    if health_checker.enabled and health_checker.startup_tests:
-        print()  # Blank line before health checks
-        health_checker.run_all_checks()
-        overall_status = health_checker.print_results(title="Startup Health Check")
-    else:
+        # Socket mode settings
+        if self.stream_mode == 'socket':
+            self.stream_port = int(config['SERVER']['Stream_Port'])
+            self.max_clients = int(config['SERVER']['Max_Clients'])
+        
+        # File mode settings
+        if self.stream_mode == 'file':
+            self.shared_file_path = config['SERVER']['Shared_File_Path']
+            self.update_interval = float(config['SERVER']['Update_Interval'])
+            self.last_write_time = 0
+            self.last_payload_data = None  # Track last payload to detect changes
+        
+        # Sockets
+        self.udp_sock = None
+        self.tcp_sock = None
+        
+        # Statistics
+        self.packet_count = 0
+        self.last_packet_time = None
+        
+    def start(self):
+        """Start the server"""
         print("\n" + "="*70)
-    
-    print("\nListening for FlexRadio discovery packets...\n")
-    
-    # Create UDP socket for listening
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    
-    try:
-        # Bind to the discovery port
-        sock.bind((listen_address, discovery_port))
-        sock.settimeout(1.0)  # 1 second timeout for periodic checks
+        print(f"FlexRadio Discovery Server v{__version__}")
+        print("="*70)
         
-        last_packet_time = None
-        last_write_time = 0
-        packet_count = 0
+        print("\nServer Configuration:")
+        print(f"  Listen Address: {self.listen_address}")
+        print(f"  Discovery Port: {self.discovery_port}")
+        print(f"  Stream Mode: {self.stream_mode.upper()}")
+        
+        if self.stream_mode == 'socket':
+            print(f"  Stream Port: {self.stream_port}")
+            print(f"  Max Clients: {self.max_clients}")
+        elif self.stream_mode == 'file':
+            print(f"  Shared File: {self.shared_file_path}")
+            print(f"  Update Interval: {self.update_interval}s")
+        
+        logging.info(f"Server v{__version__} started - Mode: {self.stream_mode}")
+        
+        # Run startup health checks (before sockets are setup)
+        health_checker = HealthChecker(self.config, mode='server', version=__version__)
+        if health_checker.enabled and health_checker.startup_tests:
+            print()  # Blank line before health checks
+            health_checker.run_all_checks(is_startup=True)
+            health_checker.print_results(title="Startup Health Check")
+        else:
+            print("\n" + "="*70)
+        
+        # Setup sockets
+        self.setup_udp_socket()
+        
+        if self.stream_mode == 'socket':
+            self.setup_tcp_socket()
+            # Set running flag before starting accept thread
+            self.running = True
+            # Start client acceptor thread
+            accept_thread = threading.Thread(target=self.accept_clients, daemon=True)
+            accept_thread.start()
+            
+            # Post-startup verification for socket mode
+            if health_checker.enabled:
+                print("\n" + "="*70)
+                print("Post-Startup Verification")
+                print("="*70)
+                time.sleep(0.5)  # Give server time to start listening
+                health_checker_verify = HealthChecker(self.config, mode='server', version=__version__)
+                health_checker_verify.run_all_checks(is_startup=False)
+                
+                # Only print TCP Listener result
+                tcp_result = next((r for r in health_checker_verify.results if 'TCP Listener' in r.name), None)
+                if tcp_result:
+                    status_symbol = {
+                        HealthStatus.PASS: "[+]",
+                        HealthStatus.WARN: "[!]",
+                        HealthStatus.FAIL: "[X]",
+                        HealthStatus.SKIP: "[-]"
+                    }.get(tcp_result.status, "[?]")
+                    
+                    print(f"{status_symbol} [{tcp_result.status.value}]   {tcp_result.name:30} {tcp_result.message}")
+                    if tcp_result.latency_ms:
+                        print(f"           {'':30} Connection latency: {tcp_result.latency_ms:.0f}ms")
+                    
+                    if tcp_result.status == HealthStatus.PASS:
+                        print("\n✓ Server is ready to accept client connections")
+                    else:
+                        print("\n⚠ WARNING: Server may not be accepting connections properly")
+                        if tcp_result.details:
+                            print(f"  Details: {tcp_result.details}")
+                print("="*70)
+        
+        print("\nListening for FlexRadio discovery packets...")
+        print("(Waiting for radio broadcasts on UDP port 4992)\n")
+        
+        self.running = True
+        
+        # Main packet reception loop
+        try:
+            self.run()
+        except KeyboardInterrupt:
+            print("\n\nShutdown requested by user...")
+            logging.info("Server shutdown by user")
+        except Exception as e:
+            print(f"\nFatal error: {e}")
+            logging.error(f"Fatal error: {e}")  # Keep fatal errors in log
+        finally:
+            self.stop()
+    
+    def setup_udp_socket(self):
+        """Setup UDP socket for receiving discovery packets"""
+        self.udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.udp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.udp_sock.bind((self.listen_address, self.discovery_port))
+        self.udp_sock.settimeout(1.0)  # 1 second timeout for periodic checks
+    
+    def setup_tcp_socket(self):
+        """Setup TCP socket for client connections"""
+        self.tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.tcp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.tcp_sock.bind((self.listen_address, self.stream_port))
+        self.tcp_sock.listen(self.max_clients)
+        self.tcp_sock.settimeout(1.0)  # Non-blocking with timeout
+        logging.info(f"TCP server listening on {self.listen_address}:{self.stream_port}")
+    
+    def accept_clients(self):
+        """Accept incoming client connections"""
+        try:
+            # logging.info("Accept thread started")
+            
+            while self.running:
+                try:
+                    client_sock, client_addr = self.tcp_sock.accept()
+                    # logging.debug(f"Accepted connection from {client_addr}")
+                    
+                    with self.clients_lock:
+                        if len(self.clients) >= self.max_clients:
+                            # logging.warning(f"Max clients reached, rejecting {client_addr}")
+                            client_sock.close()
+                            continue
+                        
+                        client = ClientConnection(client_sock, client_addr)
+                        self.clients.append(client)
+                        print(f"→ Client connected: {client_addr} (Total: {len(self.clients)})")
+                        # logging.info(f"Client connected: {client_addr}")
+                
+                except socket.timeout:
+                    # This is normal - just means no connection attempt in last second
+                    continue
+                except Exception as e:
+                    if self.running:
+                        pass  # logging.error(f"Error accepting client: {e}")
+        except Exception as e:
+            print(f"⚠ FATAL: Accept thread crashed: {e}")
+            # logging.error(f"Accept thread crashed: {e}")
+    
+    def remove_disconnected_clients(self):
+        """Remove clients that have disconnected"""
+        with self.clients_lock:
+            disconnected = []
+            for client in self.clients:
+                try:
+                    # Simple check: try to get peer name
+                    client.sock.getpeername()
+                except:
+                    # Connection is dead
+                    disconnected.append(client)
+            
+            for client in disconnected:
+                self.clients.remove(client)
+                duration = time.time() - client.connected_at
+                print(f"← Client disconnected: {client.addr} ({client.packets_sent} packets sent, {duration:.0f}s)")
+                # logging.info(f"Client disconnected: {client.addr} - Sent {client.packets_sent} packets in {duration:.1f}s")
+                try:
+                    client.sock.close()
+                except:
+                    pass
+    
+    def broadcast_to_clients(self, packet_data):
+        """Send packet data to all connected clients"""
+        with self.clients_lock:
+            if not self.clients:
+                # logging.debug("No clients to broadcast to")
+                return
+            
+            # logging.debug(f"Broadcasting packet to {len(self.clients)} client(s)")
+            
+            failed_clients = []
+            for client in self.clients:
+                success = client.send_packet(packet_data)
+                # logging.debug(f"Send to {client.addr}: {'success' if success else 'FAILED'}")
+                if not success:
+                    failed_clients.append(client)
+            
+            # Remove failed clients
+            for client in failed_clients:
+                if client in self.clients:
+                    self.clients.remove(client)
+                    print(f"← Client send failed: {client.addr}")
+                    # logging.warning(f"Client removed: {client.addr}")
+                    try:
+                        client.sock.close()
+                    except:
+                        pass
+    
+    def write_to_file(self, packet_data):
+        """Write packet data to shared file"""
+        try:
+            with open(self.shared_file_path, 'w') as f:
+                json.dump(packet_data, f, indent=2)
+            return True
+        except Exception as e:
+            print(f"  ⚠ Error writing to shared file: {e}")
+            # logging.error(f"File write error: {e}")
+            return False
+    
+    def parse_discovery_payload(self, payload):
+        """Parse the space-separated key=value pairs from discovery payload"""
+        try:
+            # Decode bytes to string, strip null bytes
+            payload_str = payload.decode('utf-8', errors='ignore').rstrip('\x00')
+            
+            # Parse key=value pairs
+            parsed = {}
+            pairs = payload_str.split(' ')
+            for pair in pairs:
+                if '=' in pair:
+                    key, value = pair.split('=', 1)
+                    parsed[key] = value
+            
+            return parsed
+        except Exception as e:
+            # logging.error(f"Error parsing payload: {e}")
+            return {}
+    
+    def run(self):
+        """Main packet processing loop"""
         last_health_check = time.time()
+        health_checker = HealthChecker(self.config, mode='server', version=__version__)
         
-        while True:
+        while self.running:
             try:
                 # Receive discovery packet
-                data, addr = sock.recvfrom(4096)
+                data, addr = self.udp_sock.recvfrom(4096)
                 
                 current_time = time.time()
                 timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 
-                packet_count += 1
+                self.packet_count += 1
                 
                 # Only process if it's a valid VITA-49 packet
                 if len(data) >= 28 and data[0:1] == b'\x38':
@@ -132,7 +330,7 @@ def main():
                     # Try to parse the payload (starts at byte 28)
                     if len(data) > 28:
                         payload = data[28:]
-                        parsed_info = parse_discovery_payload(payload)
+                        parsed_info = self.parse_discovery_payload(payload)
                         
                         # Extract key information
                         radio_info = {
@@ -145,48 +343,65 @@ def main():
                             'status': parsed_info.get('status', 'Unknown')
                         }
                         
-                        print(f"{timestamp} - Packet #{packet_count} from {addr[0]}")
-                        print(f"  Radio: {radio_info['model']} ({radio_info['nickname']})")
-                        print(f"  Callsign: {radio_info['callsign']} | IP: {radio_info['ip']}")
-                        print(f"  Status: {radio_info['status']} | Version: {radio_info['version']}")
+                        print(f"[{timestamp}] {radio_info['model']} ({radio_info['nickname']}) - {radio_info['callsign']} @ {radio_info['ip']} - {radio_info['status']}")
                         
-                        # Write to shared file (rate limited by update_interval)
-                        if current_time - last_write_time >= update_interval:
-                            packet_data = {
-                                'timestamp': timestamp,
-                                'timestamp_unix': current_time,
-                                'server_version': __version__,
-                                'packet_hex': packet_hex,
-                                'packet_size': len(data),
-                                'source_ip': addr[0],
-                                'source_port': addr[1],
-                                'radio_info': radio_info,
-                                'parsed_payload': parsed_info
-                            }
+                        # Prepare complete packet data for distribution
+                        # This includes: header, stream_id, timestamps, payload - everything
+                        packet_data = {
+                            'timestamp': timestamp,
+                            'timestamp_unix': current_time,
+                            'server_version': __version__,
+                            'packet_hex': packet_hex,  # Complete VITA-49 packet as hex string
+                            'packet_size': len(data),
+                            'source_ip': addr[0],
+                            'source_port': addr[1],
+                            'radio_info': radio_info,
+                            'parsed_payload': parsed_info
+                        }
+                        
+                        # Distribute packet based on mode
+                        if self.stream_mode == 'socket':
+                            with self.clients_lock:
+                                client_count = len(self.clients)
                             
-                            try:
-                                # Write to shared file
-                                with open(shared_file_path, 'w') as f:
-                                    json.dump(packet_data, f, indent=2)
-                                
-                                print(f"  → Packet written to: {shared_file_path}")
-                                logging.info(f"Packet written - Radio: {radio_info['model']} {radio_info['nickname']}")
-                                last_write_time = current_time
-                                
-                            except Exception as e:
-                                print(f"  ⚠ Error writing to shared file: {e}")
-                                logging.error(f"File write error: {e}")
+                            if client_count > 0:
+                                self.broadcast_to_clients(packet_data)
+                                print(f"   → Sent to {client_count} client(s)")
+                            else:
+                                # Only show warning occasionally
+                                if self.packet_count % 10 == 1:
+                                    print(f"   ⚠ No clients connected")
                         
-                        last_packet_time = current_time
-                
+                        elif self.stream_mode == 'file':
+                            # Check if payload data has changed (ignore timestamps and metadata)
+                            payload_changed = (self.last_payload_data != parsed_info)
+                            
+                            # Write if payload changed AND rate limit allows
+                            # NOTE: We compare only the payload for change detection,
+                            # but write the COMPLETE packet (header, stream_id, timestamps, payload)
+                            if payload_changed and (current_time - self.last_write_time >= self.update_interval):
+                                if self.write_to_file(packet_data):  # packet_data contains full packet
+                                    print(f"   → Written to file (payload changed)")
+                                    self.last_write_time = current_time
+                                    self.last_payload_data = parsed_info.copy()
+                            # elif not payload_changed and self.packet_count % 10 == 1:
+                                # Occasionally log that we're skipping unchanged data
+                                # logging.debug("Skipping file write - payload unchanged")
+                        
+                        self.last_packet_time = current_time
+            
             except socket.timeout:
-                # Normal timeout - check if we haven't received packets recently
+                # Normal timeout - check for stale connection
                 current_time_val = time.time()
-                if last_packet_time and (current_time_val - last_packet_time > 30):
+                if self.last_packet_time and (current_time_val - self.last_packet_time > 30):
                     current_time = datetime.datetime.now().strftime("%H:%M:%S")
                     print(f"{current_time} - No packets received for 30+ seconds")
-                    logging.warning("No discovery packets received for 30+ seconds")
-                    last_packet_time = None
+                    # logging.warning("No discovery packets received for 30+ seconds")
+                    self.last_packet_time = None
+                
+                # Remove disconnected clients (socket mode)
+                if self.stream_mode == 'socket':
+                    self.remove_disconnected_clients()
                 
                 # Periodic health check
                 if (health_checker.enabled and 
@@ -200,28 +415,71 @@ def main():
                     last_health_check = current_time_val
                 
                 continue
-                
+            
             except KeyboardInterrupt:
                 raise
-                
+            
             except Exception as e:
                 current_time = datetime.datetime.now().strftime("%H:%M:%S")
                 print(f"{current_time} - Error processing packet: {e}")
-                logging.error(f"Packet processing error: {e}")
+                # logging.error(f"Packet processing error: {e}")
                 continue
     
-    except KeyboardInterrupt:
-        print("\n\nShutdown requested by user...")
-        logging.info("Server shutdown by user")
+    def stop(self):
+        """Stop the server and cleanup"""
+        self.running = False
+        
+        # Close all client connections
+        with self.clients_lock:
+            for client in self.clients:
+                try:
+                    client.sock.close()
+                except:
+                    pass
+            self.clients.clear()
+        
+        # Close sockets
+        if self.udp_sock:
+            self.udp_sock.close()
+        if self.tcp_sock:
+            self.tcp_sock.close()
+        
+        print(f"\nSocket(s) closed. Server stopped.")
+        print(f"Total packets received: {self.packet_count}")
+        logging.info(f"Server stopped - Total packets: {self.packet_count}")
+
+def load_config():
+    """Load configuration from config-v2.ini"""
+    config = configparser.ConfigParser()
     
-    except Exception as e:
-        print(f"\nFatal error: {e}")
-        logging.error(f"Fatal error: {e}")
+    if not os.path.exists('config-v2.ini'):
+        print("ERROR: config-v2.ini not found!")
+        logging.error("config-v2.ini not found")
+        sys.exit(1)
     
-    finally:
-        sock.close()
-        print("Socket closed. Server stopped.")
-        logging.info("Server stopped")
+    config.read('config-v2.ini')
+    
+    # Configure debug logging if enabled
+    try:
+        debug_logging = config.getboolean('DIAGNOSTICS', 'Debug_Logging', fallback=False)
+        if debug_logging:
+            logging.getLogger().setLevel(logging.DEBUG)
+            print("DEBUG: Debug logging enabled (check discovery-server.log for details)")
+    except:
+        pass
+    
+    # Validate stream mode
+    stream_mode = config['SERVER'].get('Stream_Mode', 'file').lower()
+    if stream_mode not in ['socket', 'file']:
+        print(f"ERROR: Invalid Stream_Mode '{stream_mode}'. Must be 'socket' or 'file'")
+        sys.exit(1)
+    
+    return config
+
+def main():
+    config = load_config()
+    server = DiscoveryServer(config)
+    server.start()
 
 if __name__ == "__main__":
     main()

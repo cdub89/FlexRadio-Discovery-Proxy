@@ -36,16 +36,18 @@ class HealthCheckResult:
 class HealthChecker:
     """Main health check coordinator"""
     
-    def __init__(self, config, mode='server'):
+    def __init__(self, config, mode='server', version='Unknown'):
         """
         Initialize health checker
         
         Args:
             config: ConfigParser object with DIAGNOSTICS section
             mode: 'server' or 'client'
+            version: Current script version
         """
         self.config = config
         self.mode = mode
+        self.version = version
         self.results: List[HealthCheckResult] = []
         
         # Load diagnostic settings
@@ -67,22 +69,33 @@ class HealthChecker:
             self.test_server_ip = ''
             self.test_radio_ip = ''
     
-    def run_all_checks(self) -> List[HealthCheckResult]:
-        """Run all applicable health checks based on mode"""
+    def run_all_checks(self, is_startup=False) -> List[HealthCheckResult]:
+        """Run all applicable health checks based on mode
+        
+        Args:
+            is_startup: If True, skip checks that require services to be running
+        """
         self.results = []
         
         if not self.enabled:
             return self.results
         
+        # Version and configuration check (both modes)
+        self.results.append(self._check_version_and_config())
+        
         if self.mode == 'server':
-            self._run_server_checks()
+            self._run_server_checks(skip_listener_check=is_startup)
         else:
             self._run_client_checks()
         
         return self.results
     
-    def _run_server_checks(self):
-        """Run server-specific health checks"""
+    def _run_server_checks(self, skip_listener_check=False):
+        """Run server-specific health checks
+        
+        Args:
+            skip_listener_check: If True, skip the TCP listener check (for startup before server is listening)
+        """
         # Network interface check
         self.results.append(self._check_network_interfaces())
         
@@ -90,13 +103,26 @@ class HealthChecker:
         discovery_port = int(self.config['SERVER']['Discovery_Port'])
         self.results.append(self._check_udp_port_available(discovery_port))
         
+        # Check stream mode configuration
+        stream_mode = self.config['SERVER'].get('Stream_Mode', 'file').lower()
+        
+        # Socket mode checks
+        if stream_mode == 'socket':
+            stream_port = int(self.config['SERVER']['Stream_Port'])
+            self.results.append(self._check_tcp_port_available(stream_port, "Stream Port"))
+            
+            # Only check if server is listening during periodic checks (not startup)
+            if not skip_listener_check:
+                self.results.append(self._check_tcp_listener(stream_port))
+        
+        # File mode checks
+        if stream_mode == 'file':
+            shared_file = self.config['SERVER']['Shared_File_Path']
+            self.results.append(self._check_file_write_permission(shared_file))
+        
         # Radio reachability (if configured)
         if self.test_radio_ip:
             self.results.append(self._check_ping(self.test_radio_ip, "FlexRadio"))
-        
-        # File write permission check
-        shared_file = self.config['SERVER']['Shared_File_Path']
-        self.results.append(self._check_file_write_permission(shared_file))
     
     def _run_client_checks(self):
         """Run client-specific health checks"""
@@ -110,13 +136,81 @@ class HealthChecker:
         # Broadcast capability check
         self.results.append(self._check_broadcast_capability())
         
-        # VPN/Server connectivity (if configured)
-        if self.test_server_ip:
-            self.results.append(self._check_ping(self.test_server_ip, "VPN/Server"))
+        # Check connection mode configuration
+        connection_mode = self.config['CLIENT'].get('Connection_Mode', 'file').lower()
         
-        # File read permission check
-        shared_file = self.config['CLIENT']['Shared_File_Path']
-        self.results.append(self._check_file_read_permission(shared_file))
+        # Socket mode checks
+        if connection_mode == 'socket':
+            server_address = self.config['CLIENT']['Server_Address']
+            stream_port = int(self.config['CLIENT']['Stream_Port'])
+            self.results.append(self._check_tcp_connectivity(server_address, stream_port))
+            
+            # Ping test for network reachability
+            if server_address:
+                self.results.append(self._check_ping(server_address, "Server"))
+        
+        # File mode checks  
+        if connection_mode == 'file':
+            shared_file = self.config['CLIENT']['Shared_File_Path']
+            self.results.append(self._check_file_read_permission(shared_file))
+            
+            # VPN/Server connectivity (if configured separately)
+            if self.test_server_ip and self.test_server_ip != server_address if connection_mode == 'socket' else True:
+                self.results.append(self._check_ping(self.test_server_ip, "VPN/Server"))
+    
+    def _check_version_and_config(self) -> HealthCheckResult:
+        """Check version and configuration compatibility"""
+        try:
+            # Parse version
+            version_parts = self.version.split('.')
+            if len(version_parts) >= 2:
+                major = int(version_parts[0])
+                minor = int(version_parts[1])
+                version_tuple = (major, minor)
+            else:
+                version_tuple = (0, 0)
+            
+            # Check if socket mode is configured
+            if self.mode == 'server':
+                stream_mode = self.config['SERVER'].get('Stream_Mode', 'file').lower()
+                mode_key = 'Stream_Mode'
+            else:
+                stream_mode = self.config['CLIENT'].get('Connection_Mode', 'file').lower()
+                mode_key = 'Connection_Mode'
+            
+            # Socket mode requires v2.2.0 or higher
+            if stream_mode == 'socket' and version_tuple < (2, 2):
+                return HealthCheckResult(
+                    name="Version & Configuration",
+                    status=HealthStatus.FAIL,
+                    message=f"Socket mode requires v2.2.0+ (running v{self.version})",
+                    details=f"Config has {mode_key}=socket but this version doesn't support it.\n"
+                           f"Either upgrade to v2.2.0+ or change {mode_key}=file in config-v2.ini"
+                )
+            
+            # All good
+            if stream_mode == 'socket':
+                return HealthCheckResult(
+                    name="Version & Configuration",
+                    status=HealthStatus.PASS,
+                    message=f"v{self.version} - Socket mode supported",
+                    details=f"Configuration: {mode_key}={stream_mode}"
+                )
+            else:
+                return HealthCheckResult(
+                    name="Version & Configuration",
+                    status=HealthStatus.PASS,
+                    message=f"v{self.version} - File mode",
+                    details=f"Configuration: {mode_key}={stream_mode}"
+                )
+        
+        except Exception as e:
+            return HealthCheckResult(
+                name="Version & Configuration",
+                status=HealthStatus.WARN,
+                message="Cannot verify version compatibility",
+                details=str(e)
+            )
     
     def _check_network_interfaces(self) -> HealthCheckResult:
         """Check available network interfaces"""
@@ -333,6 +427,154 @@ class HealthChecker:
                 name="File Read Permission",
                 status=HealthStatus.WARN,
                 message="Cannot verify read permission",
+                details=str(e)
+            )
+    
+    def _check_tcp_port_available(self, port: int, port_name: str = "TCP Port") -> HealthCheckResult:
+        """Check if TCP port can be bound"""
+        try:
+            test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            test_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            test_sock.bind(('', port))
+            test_sock.close()
+            
+            return HealthCheckResult(
+                name=f"{port_name} {port}",
+                status=HealthStatus.PASS,
+                message=f"Port {port} is available"
+            )
+        except OSError as e:
+            if "Address already in use" in str(e):
+                return HealthCheckResult(
+                    name=f"{port_name} {port}",
+                    status=HealthStatus.WARN,
+                    message=f"Port {port} already in use (may be this script)",
+                    details=str(e)
+                )
+            else:
+                return HealthCheckResult(
+                    name=f"{port_name} {port}",
+                    status=HealthStatus.FAIL,
+                    message=f"Cannot bind to port {port}",
+                    details=str(e)
+                )
+    
+    def _check_tcp_listener(self, port: int) -> HealthCheckResult:
+        """Check if TCP server is listening (for server self-test)"""
+        try:
+            # Try to connect to localhost on the stream port
+            test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            test_sock.settimeout(2.0)
+            
+            start_time = time.time()
+            result = test_sock.connect_ex(('127.0.0.1', port))
+            latency = (time.time() - start_time) * 1000
+            
+            test_sock.close()
+            
+            if result == 0:
+                return HealthCheckResult(
+                    name=f"TCP Listener Check",
+                    status=HealthStatus.PASS,
+                    message=f"Server is listening on port {port}",
+                    latency_ms=latency
+                )
+            else:
+                return HealthCheckResult(
+                    name=f"TCP Listener Check",
+                    status=HealthStatus.WARN,
+                    message=f"Server not yet listening on port {port}",
+                    details="Server may still be starting up"
+                )
+        except Exception as e:
+            return HealthCheckResult(
+                name=f"TCP Listener Check",
+                status=HealthStatus.WARN,
+                message="Cannot verify TCP listener",
+                details=str(e)
+            )
+    
+    def _check_tcp_connectivity(self, host: str, port: int) -> HealthCheckResult:
+        """Check TCP connectivity to server"""
+        if not host:
+            return HealthCheckResult(
+                name="Server TCP Connectivity",
+                status=HealthStatus.FAIL,
+                message="No server address configured",
+                details="Check Server_Address in config"
+            )
+        
+        try:
+            test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            test_sock.settimeout(5.0)
+            
+            start_time = time.time()
+            result = test_sock.connect_ex((host, port))
+            latency = (time.time() - start_time) * 1000
+            
+            test_sock.close()
+            
+            if result == 0:
+                return HealthCheckResult(
+                    name="Server TCP Connectivity",
+                    status=HealthStatus.PASS,
+                    message=f"Can connect to {host}:{port}",
+                    latency_ms=latency
+                )
+            elif result == 10061:  # Windows: Connection refused
+                return HealthCheckResult(
+                    name="Server TCP Connectivity",
+                    status=HealthStatus.FAIL,
+                    message=f"Connection refused by {host}:{port}",
+                    details="Server may not be running or port blocked by firewall"
+                )
+            elif result == 111:  # Linux: Connection refused
+                return HealthCheckResult(
+                    name="Server TCP Connectivity",
+                    status=HealthStatus.FAIL,
+                    message=f"Connection refused by {host}:{port}",
+                    details="Server may not be running or port blocked by firewall"
+                )
+            elif result == 10060:  # Windows: Connection timeout
+                return HealthCheckResult(
+                    name="Server TCP Connectivity",
+                    status=HealthStatus.FAIL,
+                    message=f"Connection timeout to {host}:{port}",
+                    details="Host unreachable or firewall blocking"
+                )
+            elif result == 110:  # Linux: Connection timeout
+                return HealthCheckResult(
+                    name="Server TCP Connectivity",
+                    status=HealthStatus.FAIL,
+                    message=f"Connection timeout to {host}:{port}",
+                    details="Host unreachable or firewall blocking"
+                )
+            else:
+                return HealthCheckResult(
+                    name="Server TCP Connectivity",
+                    status=HealthStatus.FAIL,
+                    message=f"Cannot connect to {host}:{port}",
+                    details=f"Error code: {result}"
+                )
+        except socket.gaierror as e:
+            return HealthCheckResult(
+                name="Server TCP Connectivity",
+                status=HealthStatus.FAIL,
+                message=f"Cannot resolve hostname: {host}",
+                details=str(e)
+            )
+        except socket.timeout:
+            return HealthCheckResult(
+                name="Server TCP Connectivity",
+                status=HealthStatus.FAIL,
+                message=f"Connection timeout to {host}:{port}",
+                details="Host unreachable or firewall blocking"
+            )
+        except Exception as e:
+            return HealthCheckResult(
+                name="Server TCP Connectivity",
+                status=HealthStatus.FAIL,
+                message=f"Cannot connect to {host}:{port}",
                 details=str(e)
             )
     

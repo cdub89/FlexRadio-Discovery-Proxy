@@ -48,7 +48,7 @@ def test_server_checks():
     print("="*70)
     
     config = create_test_config()
-    checker = HealthChecker(config, mode='server')
+    checker = HealthChecker(config, mode='server', version='2.2.0')
     
     results = checker.run_all_checks()
     overall = checker.print_results(title="Server Health Check Test")
@@ -58,6 +58,7 @@ def test_server_checks():
     
     # Verify critical checks exist
     check_names = [r.name for r in results]
+    assert "Version & Configuration" in check_names, "Missing version check"
     assert "Network Interfaces" in check_names, "Missing network interface check"
     assert "UDP Port 4992" in check_names, "Missing port check"
     assert "File Write Permission" in check_names, "Missing file write check"
@@ -72,7 +73,7 @@ def test_client_checks():
     print("="*70)
     
     config = create_test_config()
-    checker = HealthChecker(config, mode='client')
+    checker = HealthChecker(config, mode='client', version='2.2.0')
     
     results = checker.run_all_checks()
     overall = checker.print_results(title="Client Health Check Test")
@@ -82,6 +83,7 @@ def test_client_checks():
     
     # Verify critical checks exist
     check_names = [r.name for r in results]
+    assert "Version & Configuration" in check_names, "Missing version check"
     assert "Network Interfaces" in check_names, "Missing network interface check"
     assert "UDP Port 4992" in check_names, "Missing port check"
     assert "Broadcast Capability" in check_names, "Missing broadcast check"
@@ -100,7 +102,7 @@ def test_with_ping():
     # Add localhost for ping test
     config['DIAGNOSTICS']['Test_Server_IP'] = '127.0.0.1'
     
-    checker = HealthChecker(config, mode='client')
+    checker = HealthChecker(config, mode='client', version='2.2.0')
     results = checker.run_all_checks()
     checker.print_results(title="Client Health Check with Ping")
     
