@@ -1,6 +1,6 @@
 MIT License
 
-Copyright (c) 2024 VA3MW (Michael Walker),  Refactored and Enhanced 2026 WX7V (Chris L White)
+Copyright (c) 2026 Chris L White (WX7V)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,3 +19,28 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+================================================================================
+
+ADDITIONAL NOTICES AND DISCLAIMERS
+
+This software is NOT officially supported by FlexRadio Systems, Inc., its 
+employees, or its help desk.
+
+This is an independent, community-developed tool created to solve specific 
+networking challenges when accessing FlexRadio transceivers over VPN or remote 
+connections. While it follows the FlexRadio Discovery Protocol specifications, 
+it is not endorsed, maintained, or supported by FlexRadio Systems.
+
+For official FlexRadio support and products, please visit:
+  - Website: https://www.flexradio.com
+  - Help Desk: https://helpdesk.flexradio.com
+  - Community: https://community.flexradio.com
+
+ACKNOWLEDGMENTS
+
+This project builds upon the work of the amateur radio community and follows
+the VITA-49 standards for radio frequency data transport. Thanks to all 
+contributors and the FlexRadio community for their documentation and support.
+
+Original concept inspired by VA3MW's FlexRadio VPN discovery work.

@@ -1,0 +1,405 @@
+## FlexRadio Discovery Protocol
+
+## Overview
+FlexRadio uses VITA-49 for its discovery packets, specifically within its "Signature Series" (FLEX-6000 and FLEX-8000) transceivers.
+
+While VITA-49 is most commonly associated with transport of digitized RF (I/Q data), FlexRadio uses a specific VITA-49 packet structure to broadcast the radio's presence on a network. This allows clients like SmartSDR, or third-party tools, to "discover" the radio without knowing its IP address beforehand.
+
+How it Works
+The discovery process follows these technical specifications:
+
+Packet Format: The radio emits packets that follow the VITA-49.0 standard. Specifically, it uses an Extension Data Packet type.
+
+Port & Protocol: These packets are broadcast (or multicast) over UDP port 4992.
+
+Payload: Inside the VITA-49 payload, the radio sends a string of key-value pairs (e.g., model=FLEX-6600, serial=1234-5678, ip=192.168.1.50) that the client parses to populate the radio chooser list.
+
+Legacy vs. Modern: FlexRadio transitioned to this VITA-49-based discovery protocol around the release of SmartSDR v1.2/v1.3. Older versions used a simpler, non-VITA broadcast.
+
+Why VITA-49?
+FlexRadio uses VITA-49 as the "backbone" of its entire Ethernet API. By wrapping discovery in a VITA-49 header, the radio maintains a consistent protocol across:
+
+Discovery: Finding the radio on the network.
+
+Status/Control: Sending metering and metadata.
+
+I/Q & Audio Streams: High-speed transport of the actual radio signals.
+
+Practical Implications
+Because these packets are sent as broadcasts on a local subnet, they often do not cross routers or VPNs by default. This is why users trying to operate their FlexRadio remotely via a VPN often need a "Discovery Helper" or a tool like Flextool to rebroadcast those VITA-49 packets across the VPN tunnel so the SmartSDR client can see the radio.
+
+The FlexRadio VITA-49 discovery packet is technically an **Extension Data Packet with Stream ID**. It is broadcast over **UDP port 4992**.
+
+The packet consists of a standard VITA-49 header followed by a payload of **space-delimited key-value pairs** as a UTF-8 string.
+
+### 1. VITA-49 Header Structure (C-Style)
+
+The packet header follows the ANSI/VITA-49.0 standard. For discovery, it typically uses the following identifiers:
+
+* **Packet Type:** `0x0C` (Extension Data Packet with Stream ID)
+* **Stream ID:** `0x00000800`
+* **Class ID:** `0x00001C2D534CFFFF` (High: `0x00001C2D`, Low: `0x534CFFFF`)
+
+```c
+typedef struct _vita_ext_data_discovery {
+    uint32_t header;           // VITA-49 Header
+    uint32_t stream_id;        // 0x00000800 for Discovery
+    uint32_t class_id_h;       // 0x00001C2D (Flex OUI + Info Class)
+    uint32_t class_id_l;       // 0x534CFFFF (Packet Class)
+    uint32_t timestamp_int;    // Usually 0
+    uint32_t timestamp_frac_h; // Usually 0
+    uint32_t timestamp_frac_l; // Usually 0
+    char payload[];            // ASCII/UTF-8 Key-Value String
+} VitaDiscoveryPacket;
+
+```
+
+### 2. The Payload Format
+
+The payload is a simple string. Each property is defined as `key=value`, and each pair is separated by a space.
+
+**Example Payload String:**
+`model=FLEX-6400 serial=1234-5678 ip=192.168.1.50 port=4992 status=available nickname=Station1`
+
+### 3. Key Discovery Fields
+
+When parsing the payload string, you will commonly find these keys:
+
+| Key | Description | Example |
+| --- | --- | --- |
+| `model` | The radio hardware model | `FLEX-6600` |
+| `serial` | Unique serial number | `1234-5678-0000-0000` |
+| `ip` | The radio's current IP address | `10.0.0.5` |
+| `port` | The TCP port for the Command API | `4992` |
+| `status` | Current availability | `available`, `in_use`, `update` |
+| `nickname` | User-defined name for the radio | `My_Flex_6400` |
+| `version` | Current firmware version | `3.5.9` |
+| `callsign` | User-configured callsign | `W1AW` |
+
+### 4. Implementation Notes
+
+* **Byte Order:** Remember that VITA-49 headers are sent in **Big-Endian (Network Byte Order)**.
+* **Padding:** VITA-49 requires the total packet size to be a multiple of 4-byte words. FlexRadio typically pads the end of the string with null bytes (`\0`) to satisfy this requirement.
+* **UDP Broadcast:** The radio sends these packets periodically (roughly every second). To "discover" the radio, your software simply needs to bind a UDP socket to port 4992 and listen for these VITA-49 encoded broadcasts.
+
+---
+
+
+## Example Discovery Packet (Wireshark Capture)
+
+Real-world capture from FlexRadio FLEX-6600:
+
+```
+0000   ff ff ff ff ff ff 00 1c 2d 05 0a 5a 08 00 45 00   ........-..Z..E.
+0010   02 ec 00 00 40 00 40 11 76 f4 c0 a8 00 65 ff ff   ....@.@.v....e..
+0020   ff ff 13 80 13 80 02 d8 19 ce 38 52 00 b4 00 00   ..........8R....
+0030   08 00 00 00 1c 2d 53 4c ff ff 69 75 47 d1 00 00   .....-SL..iuG...
+0040   00 00 00 00 00 00 64 69 73 63 6f 76 65 72 79 5f   ......discovery_
+0050   70 72 6f 74 6f 63 6f 6c 5f 76 65 72 73 69 6f 6e   protocol_version
+0060   3d 33 2e 31 2e 30 2e 32 20 6d 6f 64 65 6c 3d 46   =3.1.0.2 model=F
+0070   4c 45 58 2d 36 36 30 30 20 73 65 72 69 61 6c 3d   LEX-6600 serial=
+0080   33 37 31 38 2d 30 35 32 32 2d 36 36 30 30 2d 30   3718-0522-6600-0
+0090   30 30 33 20 76 65 72 73 69 6f 6e 3d 34 2e 31 2e   003 version=4.1.
+00a0   35 2e 33 39 37 39 34 20 6e 69 63 6b 6e 61 6d 65   5.39794 nickname
+00b0   3d 4c 61 6b 65 36 36 30 30 20 63 61 6c 6c 73 69   =Lake6600 callsi
+00c0   67 6e 3d 57 58 37 56 20 69 70 3d 31 39 32 2e 31   gn=WX7V ip=192.1
+00d0   36 38 2e 30 2e 31 30 31 20 70 6f 72 74 3d 34 39   68.0.101 port=49
+00e0   39 32 20 73 74 61 74 75 73 3d 41 76 61 69 6c 61   92 status=Availa
+00f0   62 6c 65 20 69 6e 75 73 65 5f 69 70 3d 34 37 2e   ble inuse_ip=47.
+0100   33 38 2e 32 32 33 2e 30 20 69 6e 75 73 65 5f 68   38.223.0 inuse_h
+0110   6f 73 74 3d 73 79 6e 2d 30 34 37 2d 30 33 38 2d   ost=syn-047-038-
+0120   32 32 33 2d 30 30 30 2e 72 65 73 2e 73 70 65 63   223-000.res.spec
+0130   74 72 75 6d 2e 63 6f 6d 20 6d 61 78 5f 6c 69 63   trum.com max_lic
+0140   65 6e 73 65 64 5f 76 65 72 73 69 6f 6e 3d 76 34   ensed_version=v4
+0150   20 72 61 64 69 6f 5f 6c 69 63 65 6e 73 65 5f 69    radio_license_i
+0160   64 3d 30 30 2d 31 43 2d 32 44 2d 30 35 2d 30 41   d=00-1C-2D-05-0A
+0170   2d 35 41 20 66 70 63 5f 6d 61 63 3d 20 77 61 6e   -5A fpc_mac= wan
+0180   5f 63 6f 6e 6e 65 63 74 65 64 3d 31 20 6c 69 63   _connected=1 lic
+0190   65 6e 73 65 64 5f 63 6c 69 65 6e 74 73 3d 32 20   ensed_clients=2 
+01a0   61 76 61 69 6c 61 62 6c 65 5f 63 6c 69 65 6e 74   available_client
+01b0   73 3d 31 20 6d 61 78 5f 70 61 6e 61 64 61 70 74   s=1 max_panadapt
+01c0   65 72 73 3d 34 20 61 76 61 69 6c 61 62 6c 65 5f   ers=4 available_
+01d0   70 61 6e 61 64 61 70 74 65 72 73 3d 33 20 6d 61   panadapters=3 ma
+01e0   78 5f 73 6c 69 63 65 73 3d 34 20 61 76 61 69 6c   x_slices=4 avail
+01f0   61 62 6c 65 5f 73 6c 69 63 65 73 3d 33 20 67 75   able_slices=3 gu
+0200   69 5f 63 6c 69 65 6e 74 5f 69 70 73 3d 34 37 2e   i_client_ips=47.
+0210   33 38 2e 32 32 33 2e 30 20 67 75 69 5f 63 6c 69   38.223.0 gui_cli
+0220   65 6e 74 5f 68 6f 73 74 73 3d 73 79 6e 2d 30 34   ent_hosts=syn-04
+0230   37 2d 30 33 38 2d 32 32 33 2d 30 30 30 2e 72 65   7-038-223-000.re
+0240   73 2e 73 70 65 63 74 72 75 6d 2e 63 6f 6d 20 67   s.spectrum.com g
+0250   75 69 5f 63 6c 69 65 6e 74 5f 70 72 6f 67 72 61   ui_client_progra
+0260   6d 73 3d 53 6d 61 72 74 53 44 52 2d 4d 61 65 73   ms=SmartSDR-Maes
+0270   74 72 6f 20 67 75 69 5f 63 6c 69 65 6e 74 5f 73   tro gui_client_s
+0280   74 61 74 69 6f 6e 73 3d 4d 61 65 73 74 72 6f 7f   tations=Maestro.
+0290   43 20 67 75 69 5f 63 6c 69 65 6e 74 5f 68 61 6e   C gui_client_han
+02a0   64 6c 65 73 3d 30 78 37 43 46 36 34 37 45 45 20   dles=0x7CF647EE 
+02b0   6d 69 6e 5f 73 6f 66 74 77 61 72 65 5f 76 65 72   min_software_ver
+02c0   73 69 6f 6e 3d 32 2e 31 2e 32 30 2e 30 20 65 78   sion=2.1.20.0 ex
+02d0   74 65 72 6e 61 6c 5f 70 6f 72 74 5f 6c 69 6e 6b   ternal_port_link
+02e0   3d 31 20 6c 69 63 65 6e 73 65 5f 69 73 5f 75 6e   =1 license_is_un
+02f0   6b 6e 6f 77 6e 3d 30 00 00 00                     known=0...
+```
+
+### Decoded Payload (starting at offset 0x0040):
+
+```
+discovery_protocol_version=3.1.0.2 model=FLEX-6600 serial=3718-0522-6600-0003 
+version=4.1.5.39794 nickname=Lake6600 callsign=WX7V ip=192.168.0.101 port=4992 
+status=Available inuse_ip=47.38.223.0 inuse_host=syn-047-038-223-000.res.spectrum.com 
+max_licensed_version=v4 radio_license_id=00-1C-2D-05-0A-5A fpc_mac= wan_connected=1 
+licensed_clients=2 available_clients=1 max_panadapters=4 available_panadapters=3 
+max_slices=4 available_slices=3 gui_client_ips=47.38.223.0 
+gui_client_hosts=syn-047-038-223-000.res.spectrum.com gui_client_programs=SmartSDR-Maestro 
+gui_client_stations=Maestro.C gui_client_handles=0x7CF647EE min_software_version=2.1.20.0 
+external_port_link=1 license_is_unknown=0
+```
+
+### Packet Analysis:
+
+**Ethernet Header (bytes 0x0000-0x000D):**
+- Destination MAC: `ff:ff:ff:ff:ff:ff` (Broadcast)
+- Source MAC: `00:1c:2d:05:0a:5a` (FlexRadio Systems)
+- EtherType: `0x0800` (IPv4)
+
+**IP Header (bytes 0x000E-0x0021):**
+- Version: 4, Header Length: 20 bytes
+- Total Length: 0x02ec (748 bytes)
+- Protocol: 17 (UDP)
+- Source IP: `192.168.0.101` (0xc0 a8 00 65)
+- Destination IP: `255.255.255.255` (0xff ff ff ff - Broadcast)
+
+**UDP Header (bytes 0x0022-0x0029):**
+- Source Port: 4992 (0x1380)
+- Destination Port: 4992 (0x1380)
+- Length: 728 bytes (0x02d8)
+- Checksum: 0x19ce
+
+**Proprietary Header (bytes 0x002A-0x003F):**
+- `38 52 00 b4 00 00 08 00 00 00 1c 2d 53 4c ff ff 69 75 47 d1 00 00 00 00 00 00 00 00`
+- Purpose: FlexRadio proprietary framing (not documented publicly)
+
+**ASCII Payload (bytes 0x0040-0x02F9):**
+- Format: Space-separated key=value pairs
+- Encoding: UTF-8 text
+- Termination: Null bytes at end
+
+## Implementation Notes for Discovery Proxy
+
+When implementing a FlexRadio Discovery Proxy:
+
+1. **Listening**: Bind UDP socket to port 4992 with broadcast enabled
+2. **Parsing**: Split payload by spaces, then by `=` to extract key-value pairs
+3. **Modification**: Carefully update IP addresses while preserving packet structure
+4. **Rebroadcast**: Send modified packet to broadcast address on target network
+5. **Header Handling**: Preserve the 32-byte proprietary header when forwarding
+6. **Checksum**: Recalculate UDP checksum after modifying payload
+7. **Timing**: Respect original broadcast intervals (typically 2-5 seconds)
+8. **Multi-value Fields**: Some fields contain comma-separated lists (e.g., multiple client IPs)
+
+### Critical Fields for Proxy Operation:
+- `ip`: Must be modified to reflect the proxy's reachable address
+- `inuse_ip` / `inuse_host`: Should reflect actual client connections
+- `status`: Should accurately reflect radio availability
+- `available_clients/panadapters/slices`: Should reflect actual availability
+
+### Fields to Preserve:
+- `model`, `serial`, `version`: Radio identification
+- `callsign`, `nickname`: User settings
+- `radio_license_id`: Licensing information
+- `max_*` fields: Hardware capabilities
+
+---
+
+## FlexRadio Discovery Proxy - Version 2.0 Architecture
+
+### Overview
+
+Version 2.0 introduces a **client-server architecture** that uses **file-based communication** instead of generating synthetic packets. This approach captures and rebroadcasts authentic VITA-49 discovery packets.
+
+### Architecture Components
+
+#### Server Component (FRS-Discovery-Server-v2.py)
+**Location:** Runs on remote location where FlexRadio is located  
+**Purpose:** Captures authentic VITA-49 discovery broadcasts from FlexRadio
+
+**Functionality:**
+1. Binds to UDP port 4992 and listens for discovery broadcasts
+2. Receives and validates VITA-49 packets from radio
+3. Parses payload to extract radio information
+4. Writes complete packet data to JSON file on shared drive
+5. Rate-limits file updates to prevent excessive I/O
+
+**Key Features:**
+- Real packet capture (not synthetic)
+- Automatic radio information extraction
+- JSON output with full packet hex dump
+- Configurable update intervals
+- Detailed logging to `discovery-server.log`
+
+#### Client Component (FRS-Discovery-Client-v2.py)
+**Location:** Runs on local PC where SmartSDR client is running  
+**Purpose:** Reads captured packets and rebroadcasts to local network
+
+**Functionality:**
+1. Monitors shared JSON file for updates
+2. Validates file age to ensure radio is active
+3. Reads captured packet data
+4. Reconstructs VITA-49 packet from hex data
+5. Broadcasts to local network on port 4992
+
+**Key Features:**
+- File age monitoring
+- Stale file detection
+- Authentic packet rebroadcast
+- Rate-limited broadcasting
+- Detailed logging to `discovery-client.log`
+
+#### Communication File (discovery.json)
+**Location:** Shared drive (network share or cloud storage)  
+**Purpose:** Transfer discovery packet data between server and client
+
+**Format:**
+```json
+{
+  "timestamp": "2026-01-26 14:23:45",
+  "timestamp_unix": 1737904425.123,
+  "server_version": "2.0.0",
+  "packet_hex": "38520...",
+  "packet_size": 748,
+  "source_ip": "192.168.0.101",
+  "source_port": 4992,
+  "radio_info": {
+    "model": "FLEX-6600",
+    "serial": "3718-0522-6600-0003",
+    "ip": "192.168.0.101",
+    "nickname": "Lake6600",
+    "callsign": "WX7V",
+    "version": "4.1.5.39794",
+    "status": "Available"
+  },
+  "parsed_payload": {
+    "discovery_protocol_version": "3.1.0.2",
+    ...all discovery fields...
+  }
+}
+```
+
+### Configuration (config-v2.ini)
+
+#### Server Settings
+```ini
+[SERVER]
+Listen_Address = 0.0.0.0              # Interface to bind (0.0.0.0 = all)
+Discovery_Port = 4992                 # FlexRadio discovery port
+Shared_File_Path = discovery.json     # Path to shared file
+Update_Interval = 2.0                 # Seconds between file writes
+```
+
+#### Client Settings
+```ini
+[CLIENT]
+Shared_File_Path = discovery.json     # Same file as server
+Broadcast_Address = 255.255.255.255   # Local broadcast address
+Discovery_Port = 4992                 # FlexRadio discovery port
+Check_Interval = 3.0                  # File check frequency (seconds)
+Max_File_Age = 15.0                   # Stale file threshold (seconds)
+```
+
+### Communication Flow
+
+```
+1. FlexRadio → UDP Broadcast (port 4992)
+              ↓
+2. Server → Receives VITA-49 packet
+          ↓
+3. Server → Parses payload, extracts info
+          ↓
+4. Server → Writes JSON to shared file
+          ↓
+5. Shared Storage → Syncs file (network/cloud)
+          ↓
+6. Client → Reads JSON from shared file
+          ↓
+7. Client → Validates file age
+          ↓
+8. Client → Reconstructs packet from hex
+          ↓
+9. Client → Broadcasts to local network
+          ↓
+10. SmartSDR → Receives broadcast, discovers radio
+```
+
+### Advantages Over v1.x
+
+1. **Authenticity:** Uses real VITA-49 packets, not synthetic ones
+2. **Accuracy:** Reflects actual radio status (Available, In Use, etc.)
+3. **Automatic:** No manual configuration of radio parameters needed
+4. **Flexible:** Works across any network topology (VPN, internet, cloud)
+5. **Future-Proof:** Automatically handles FlexRadio protocol updates
+6. **Multi-Radio:** Easy to support multiple radios with multiple instances
+
+### Use Cases
+
+1. **VPN Access with Network Share:** Server and client communicate via SMB/NFS share
+2. **Internet Access with Cloud Storage:** Dropbox/OneDrive syncs discovery.json between locations
+3. **Multiple Radios:** Run multiple server instances with different output files
+4. **Contest Stations:** Multiple operators access multiple radios via shared storage
+
+### Timing and Performance
+
+**Server:**
+- Packet reception: As fast as radio broadcasts (2-5 seconds)
+- File writes: Rate-limited to `Update_Interval` (default 2.0s)
+- Network overhead: Minimal (UDP receiving only)
+
+**Client:**
+- File checks: Every `Check_Interval` (default 3.0s)
+- Broadcasting: Immediately on file update
+- Stale detection: Warns if file age > `Max_File_Age` (default 15.0s)
+
+**Latency Considerations:**
+- Network share: < 1 second typically
+- Cloud sync: 5-30 seconds depending on service
+- File system: Depends on storage medium and network
+
+### Implementation Notes for v2
+
+When working with v2 code:
+
+1. **Server must be on same subnet as FlexRadio** - Cannot receive broadcasts across routers
+2. **Shared file path must be identical** - Both server and client must access same file
+3. **File age monitoring is critical** - Prevents broadcasting stale data
+4. **Packet hex preservation** - Complete packet stored as hex for accurate reconstruction
+5. **JSON format is extensible** - Can add metadata without breaking compatibility
+6. **Rate limiting prevents storms** - Both server and client use rate limiting
+7. **Logging tracks state changes** - Both components log to separate files
+
+### Migration from v1.x
+
+- v1.x and v2.0 are **completely independent** systems
+- No configuration carries over from v1.x to v2.0
+- v1.x uses `config.ini`, v2.0 uses `config-v2.ini`
+- Both can run simultaneously for testing
+- See `MIGRATION_GUIDE_v1_to_v2.md` for detailed migration steps
+
+### File Structure
+
+**v1.x Files:**
+- `FRS-Discovery-Proxy.py` - Single script
+- `config.ini` - Configuration
+- `broadcast.log` - Activity log
+- `FRS-Discovery-Proxy.bat` - Windows launcher
+
+**v2.0 Files:**
+- `FRS-Discovery-Server-v2.py` - Server component
+- `FRS-Discovery-Client-v2.py` - Client component
+- `config-v2.ini` - Configuration for both
+- `discovery-server.log` - Server log
+- `discovery-client.log` - Client log
+- `discovery.json` - Communication file
+- `FRS-Discovery-Server-v2.bat` - Server launcher
+- `FRS-Discovery-Client-v2.bat` - Client launcher
+- `README_v2.md` - v2 documentation
+- `RELEASE_NOTES_v2.0.0.md` - v2 release notes
+- `MIGRATION_GUIDE_v1_to_v2.md` - Migration guide
+- `QUICKSTART_v2.md` - Quick setup guide
