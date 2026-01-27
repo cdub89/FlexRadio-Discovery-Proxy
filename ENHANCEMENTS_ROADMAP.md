@@ -171,7 +171,7 @@ Create a modern cross-platform GUI application using Avalonia UI framework:
   - Validation of IP addresses, ports, and file paths
   - Separate views for SERVER and CLIENT sections
   - Save/Load/Reset configuration options
-  - Import settings from existing config-v2.ini
+  - Import settings from existing config.ini
 
 ##### 2. Mode Selection and Control
 - **Mode Selector:**

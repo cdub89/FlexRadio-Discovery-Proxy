@@ -185,7 +185,7 @@ class HealthChecker:
                     status=HealthStatus.FAIL,
                     message=f"Socket mode requires v2.2.0+ (running v{self.version})",
                     details=f"Config has {mode_key}=socket but this version doesn't support it.\n"
-                           f"Either upgrade to v2.2.0+ or change {mode_key}=file in config-v2.ini"
+                           f"Either upgrade to v2.2.0+ or change {mode_key}=file in config.ini"
                 )
             
             # All good

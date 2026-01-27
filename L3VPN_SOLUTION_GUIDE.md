@@ -40,9 +40,9 @@ Handle MAC addressing → Performance tuning
 
 ---
 
-## The v2.0 Solution: Capture & Rebroadcast Real Packets
+## The v3.0 Solution: TCP Socket Streaming
 
-### How v2.0 Works Over L3 VPN
+### How v3.0 Works Over L3 VPN
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -57,34 +57,29 @@ Handle MAC addressing → Performance tuning
 │           │ (REAL VITA-49 Discovery Packet)                         │
 │           ▼                                                          │
 │  ┌──────────────────────────────────────────────┐                   │
-│  │  FRS-Discovery-Server-v2.py                  │                   │
-│  │  - Listens on 0.0.0.0:4992                  │                   │
+│  │  FRS-Discovery-Server.py                     │                   │
+│  │  - Listens on 0.0.0.0:4992 (UDP)            │                   │
 │  │  - Receives ACTUAL broadcast packet          │                   │
-│  │  - Captures complete packet: data.hex()      │                   │
 │  │  - Parses payload for display                │                   │
-│  │  - Stores in discovery.json                  │                   │
+│  │  - Listens on 0.0.0.0:5992 (TCP)            │                   │
 │  └────────────────────┬─────────────────────────┘                   │
 │                       │                                              │
 └───────────────────────┼──────────────────────────────────────────────┘
                         │
-                        │ File Transfer via:
-                        │ - SMB/CIFS over L3 VPN (WireGuard)
-                        │ - OR Cloud Sync (Dropbox/OneDrive)
-                        │ - OR NFS over L3 VPN
-                        │
-                        ▼ discovery.json contains:
-                        │ { "packet_hex": "385200b4...",
-                        │   "radio_info": { "model": "FLEX-6600", ... },
-                        │   ... }
+                        │ TCP Connection over L3 VPN
+                        │ (WireGuard, OpenVPN, etc.)
+                        │ - Real-time packet streaming
+                        │ - Sub-second latency
+                        │ - Unicast (works over L3!)
                         │
 ┌───────────────────────┼──────────────────────────────────────────────┐
 │  Local PC (Different Subnet, Connected via L3 VPN)                  │
 │                       │                                              │
 │  ┌────────────────────▼────────────────────────┐                    │
-│  │  FRS-Discovery-Client-v2.py                 │                    │
-│  │  - Reads discovery.json                     │                    │
+│  │  FRS-Discovery-Client.py                    │                    │
+│  │  - Connects to server via TCP               │                    │
+│  │  - Receives packets in real-time            │                    │
 │  │  - Reconstructs packet: bytes.fromhex()     │                    │
-│  │  - Validates freshness (Max_File_Age)       │                    │
 │  └────────────────────┬────────────────────────┘                    │
 │                       │                                              │
 │                       │ UDP Broadcast 255.255.255.255:4992          │
@@ -104,7 +99,7 @@ Handle MAC addressing → Performance tuning
 
 #### Server Captures REAL Packets (Not Synthetic!)
 
-**Line 102-113 in FRS-Discovery-Server-v2.py:**
+**Server receives the actual broadcast:**
 ```python
 # Receive discovery packet (THIS IS THE REAL PACKET FROM RADIO!)
 data, addr = sock.recvfrom(4096)
@@ -117,9 +112,9 @@ if len(data) >= 28 and data[0:1] == b'\x38':
 
 **This is NOT generating a packet - it's capturing the actual broadcast!**
 
-#### Server Stores Complete Packet
+#### Server Streams Complete Packet via TCP
 
-**Line 138-148 in FRS-Discovery-Server-v2.py:**
+**Server sends packet to all connected clients:**
 ```python
 packet_data = {
     'timestamp': timestamp,
@@ -133,17 +128,23 @@ packet_data = {
     'parsed_payload': parsed_info     # <-- For debugging
 }
 
-# Write to shared file
-with open(shared_file_path, 'w') as f:
-    json.dump(packet_data, f, indent=2)
+# Send to all connected clients via TCP
+json_data = json.dumps(packet_data) + '\n'
+client.sock.sendall(json_data.encode('utf-8'))
 ```
 
 **The `packet_hex` field contains the COMPLETE, UNMODIFIED packet!**
 
 #### Client Reconstructs EXACT Packet
 
-**Line 129 in FRS-Discovery-Client-v2.py:**
+**Client receives via TCP:**
 ```python
+# Receive data from server
+data = self.tcp_sock.recv(4096)
+
+# Parse JSON packet data
+packet_data = json.loads(line)
+
 # Convert hex string back to bytes
 packet_bytes = bytes.fromhex(packet_data['packet_hex'])
 ```
@@ -152,7 +153,7 @@ packet_bytes = bytes.fromhex(packet_data['packet_hex'])
 
 #### Client Rebroadcasts Authentic Packet
 
-**Line 142 in FRS-Discovery-Client-v2.py:**
+**Client broadcasts locally:**
 ```python
 # Broadcast the packet (SAME packet as radio sent!)
 sock.sendto(packet_bytes, (broadcast_address, discovery_port))
@@ -183,144 +184,108 @@ Remote Site:                      Local Site:
 Your existing WireGuard setup provides:
 - ✅ IP routing between 192.168.1.0/24 ↔ 10.0.0.0/24
 - ✅ Can ping radio: `ping 192.168.1.50` works
-- ✅ Can access files via SMB/NFS over VPN
+- ✅ TCP connections work across VPN
 - ❌ No broadcast forwarding (by design!)
 
-**This is perfect for v2.0! No changes needed to WireGuard.**
+**This is perfect for v3.0! No changes needed to WireGuard.**
 
-### Step 2: Set Up File Sharing Over WireGuard
+### Step 2: Ensure Firewall Rules
 
-#### Option A: SMB Share (Recommended for Windows)
-
-**On Remote Site (192.168.1.10):**
-```powershell
-# Create shared folder
-mkdir C:\FlexRadio
-New-SmbShare -Name "FlexRadio" -Path "C:\FlexRadio" -FullAccess "Everyone"
-
-# Ensure SMB is allowed through firewall
-New-NetFirewallRule -DisplayName "SMB In" -Direction Inbound -Protocol TCP -LocalPort 445 -Action Allow
-```
-
-**On Local PC (10.0.0.100):**
-```powershell
-# Map network drive via WireGuard IP
-net use Z: \\10.255.0.1\FlexRadio
-
-# Test access
-dir Z:\
-```
-
-#### Option B: NFS Share (Recommended for Linux)
-
-**On Remote Site:**
+**On Remote Site (Server):**
 ```bash
-# Install NFS server
-sudo apt install nfs-kernel-server
+# Allow UDP 4992 (FlexRadio discovery)
+sudo ufw allow 4992/udp
 
-# Create shared folder
-sudo mkdir /srv/flexradio
-sudo chmod 777 /srv/flexradio
+# Allow TCP 5992 (Discovery proxy)
+sudo ufw allow 5992/tcp
 
-# Add to /etc/exports
-echo "/srv/flexradio 10.255.0.0/24(rw,sync,no_subtree_check)" | sudo tee -a /etc/exports
-
-# Export shares
-sudo exportfs -ra
-```
-
-**On Local PC:**
-```bash
-# Mount NFS share via WireGuard IP
-sudo mount -t nfs 10.255.0.1:/srv/flexradio /mnt/flexradio
-
-# Test access
-ls /mnt/flexradio
+# Or Windows:
+New-NetFirewallRule -DisplayName "FlexRadio Discovery UDP" -Direction Inbound -Protocol UDP -LocalPort 4992 -Action Allow
+New-NetFirewallRule -DisplayName "Discovery Proxy TCP" -Direction Inbound -Protocol TCP -LocalPort 5992 -Action Allow
 ```
 
 ### Step 3: Configure Server (Remote Site)
 
-Edit `config-v2.ini` on remote site:
+Edit `config.ini` on remote site:
 ```ini
 [SERVER]
 Listen_Address = 0.0.0.0
 Discovery_Port = 4992
-Shared_File_Path = C:\FlexRadio\discovery.json    # Windows SMB
-# OR
-Shared_File_Path = /srv/flexradio/discovery.json  # Linux NFS
-Update_Interval = 2.0
+Stream_Port = 5992
+Max_Clients = 5
 ```
 
 **Start server:**
 ```bash
-python FRS-Discovery-Server-v2.py
+python FRS-Discovery-Server.py
 ```
 
 **Expected output:**
 ```
 ======================================================================
-FlexRadio Discovery Server v2.0.0
+FlexRadio Discovery Server v3.0.0
 ======================================================================
 
 Server Configuration:
   Listen Address: 0.0.0.0
   Discovery Port: 4992
-  Shared File: C:\FlexRadio\discovery.json
-  Update Interval: 2.0s
+  Stream Port: 5992
+  Max Clients: 5
 
 ======================================================================
 
 Listening for FlexRadio discovery packets...
 
-14:23:45 - Packet #1 from 192.168.1.50
-  Radio: FLEX-6600 (Lake6600)
-  Callsign: WX7V | IP: 192.168.1.50
-  Status: Available | Version: 4.1.5.39794
-  → Packet written to: C:\FlexRadio\discovery.json
+[2026-01-27 14:23:45] FLEX-6600 (Lake6600) - WX7V @ 192.168.1.50 - Available
+   → Sent to 0 client(s)
+   ⚠ No clients connected
 ```
 
 ### Step 4: Configure Client (Local PC)
 
-Edit `config-v2.ini` on local PC:
+Edit `config.ini` on local PC:
 ```ini
 [CLIENT]
-Shared_File_Path = Z:\discovery.json             # Windows mapped drive
-# OR
-Shared_File_Path = /mnt/flexradio/discovery.json # Linux NFS mount
+Server_Address = 10.255.0.1        # WireGuard IP of remote server
+Stream_Port = 5992                  # Must match server
+Reconnect_Interval = 5.0
 Broadcast_Address = 255.255.255.255
 Discovery_Port = 4992
-Check_Interval = 3.0
-Max_File_Age = 15.0
 ```
 
 **Start client:**
 ```bash
-python FRS-Discovery-Client-v2.py
+python FRS-Discovery-Client.py
 ```
 
 **Expected output:**
 ```
 ======================================================================
-FlexRadio Discovery Client v2.0.0
+FlexRadio Discovery Client v3.0.0
 ======================================================================
 
 Client Configuration:
-  Shared File: Z:\discovery.json
   Broadcast Address: 255.255.255.255
   Discovery Port: 4992
-  Check Interval: 3.0s
-  Max File Age: 15.0s
+  Server Address: 10.255.0.1
+  Stream Port: 5992
+  Reconnect Interval: 5.0s
 
 ======================================================================
 
 Monitoring for discovery packets...
 
-14:23:50 - Radio discovered:
+Connecting to server 10.255.0.1:5992...
+
+14:23:50 - ✓ Connected to server
+  Listening for discovery packets...
+
+14:23:52 - Radio discovered:
   FLEX-6600 (Lake6600)
   Callsign: WX7V | IP: 192.168.1.50
   Status: Available | Version: 4.1.5.39794
-  File age: 2.3s | Server: v2.0.0
-14:23:50 - ✓ Started broadcasting discovery packets
+  Server: v3.0.0
+14:23:52 - ✓ Started broadcasting discovery packets
 ```
 
 ### Step 5: Open SmartSDR
@@ -329,8 +294,8 @@ Your radio now appears in SmartSDR as if it were local!
 
 **Why it works:**
 1. Server captures real broadcast on remote subnet
-2. Packet stored in file
-3. File transferred over L3 VPN (unicast, works fine!)
+2. Packet streamed via TCP over L3 VPN (unicast, works!)
+3. Client receives packet in real-time (<1 second)
 4. Client rebroadcasts on local subnet
 5. SmartSDR sees "local" broadcast
 6. Connection uses L3 VPN unicast (works!)
@@ -349,12 +314,7 @@ Your radio now appears in SmartSDR as if it were local!
 sudo tcpdump -i eth0 -X udp port 4992 and host 192.168.1.50 > real_packet.txt
 ```
 
-**Check discovery.json:**
-```bash
-cat /srv/flexradio/discovery.json | jq -r '.packet_hex' | head -c 100
-```
-
-**The hex should match the Wireshark capture exactly!**
+**Check server output - packet_hex matches Wireshark capture exactly!**
 
 #### Method 2: Check Radio Status Field
 
@@ -367,12 +327,6 @@ cat /srv/flexradio/discovery.json | jq -r '.packet_hex' | head -c 100
 - `"status": "Available"` - Even when in use!
 - Empty client fields
 
-**Check the file:**
-```bash
-cat discovery.json | jq '.parsed_payload.status'
-# Output: "Available" or "In Use" (REAL STATUS!)
-```
-
 #### Method 3: Firmware Version Auto-Updates
 
 **Real packet:**
@@ -383,43 +337,33 @@ cat discovery.json | jq '.parsed_payload.status'
 **Synthetic packet (v1.x):**
 - Version is manually configured
 - Becomes outdated unless manually updated
-- Example: Still shows `"4.1.5.39794"` even after radio updated to 4.2.x
-
-#### Method 4: Inspect discovery.json Structure
-
-The file explicitly shows it's a captured packet:
-```json
-{
-  "timestamp": "2026-01-26 14:23:45",
-  "server_version": "2.0.0",
-  "packet_hex": "385200b400000800...",     ← Complete raw packet!
-  "packet_size": 748,
-  "source_ip": "192.168.1.50",             ← Radio's actual IP
-  "source_port": 4992,                     ← Received from port 4992
-  "radio_info": {
-    "model": "FLEX-6600",
-    "serial": "3718-0522-6600-0003",
-    "status": "Available",                 ← Real-time status!
-    ...
-  }
-}
-```
 
 ---
 
-## Advantages Over L2 VPN
+## Advantages Over Other Solutions
 
-| Aspect | L2 VPN (Bridge) | v2.0 (L3 + File Transfer) |
-|--------|-----------------|---------------------------|
-| **Setup Complexity** | High (TAP, bridge, DHCP) | Low (file sharing only) |
-| **VPN Mode** | TAP (Ethernet bridge) | TUN (IP routing) ✓ |
-| **WireGuard Compatible** | Requires special config | Native WireGuard ✓ |
-| **Performance** | High overhead (all L2 traffic) | Minimal (only discovery) ✓ |
-| **Security** | Entire networks exposed | Only file share exposed ✓ |
-| **Broadcast Traffic** | All broadcasts forwarded | Only discovery needed ✓ |
-| **Maintenance** | Complex (bridge/DHCP issues) | Simple (file sharing) ✓ |
-| **Latency** | ~5-50ms | ~1-5s (acceptable for discovery) |
-| **Packet Authenticity** | Real | Real ✓ |
+| Aspect | L2 VPN (Bridge) | File Mode (v2.x) | Socket Mode (v3.0) |
+|--------|-----------------|------------------|--------------------|
+| **Setup Complexity** | High (TAP, bridge, DHCP) | Medium (file shares) | Low (TCP only) ✓ |
+| **VPN Mode** | TAP (Ethernet bridge) | TUN (IP routing) | TUN (IP routing) ✓ |
+| **WireGuard Compatible** | Requires special config | Yes | Native ✓ |
+| **Performance** | High overhead (all L2 traffic) | Medium (file I/O) | Minimal (TCP stream) ✓ |
+| **Latency** | ~5-50ms | 5-30s | <1s ✓ |
+| **Setup Required** | Bridging, DHCP | File shares, cloud sync | Firewall rule only ✓ |
+| **Maintenance** | Complex | Medium | Simple ✓ |
+| **Reliability** | Medium | Medium (sync issues) | High ✓ |
+| **Packet Authenticity** | Real ✓ | Real ✓ | Real ✓ |
+
+### Why File Mode Was Abandoned (v2.x)
+
+Version 2.x supported file-based streaming, but it proved unsatisfactory:
+- **Network share overhead:** Required SMB/NFS configuration, permissions, firewall rules
+- **Cloud storage latency:** OneDrive, Google Drive, and Dropbox introduced 5-30 second delays
+- **High write frequency:** Constant file updates caused performance issues with cloud sync
+- **Complexity:** More moving parts to troubleshoot
+- **Reliability:** File locks, sync conflicts, stale file detection issues
+
+Socket mode (v3.0) solved all these problems with direct TCP streaming.
 
 ---
 
@@ -430,7 +374,7 @@ The file explicitly shows it's a captured packet:
 **Symptoms:**
 ```
 Listening for FlexRadio discovery packets...
-(no packets shown)
+   ⚠ No packets received for 30+ seconds
 ```
 
 **Diagnosis:**
@@ -446,27 +390,29 @@ sudo tcpdump -i any udp port 4992
 2. Check firewall allows UDP 4992 inbound
 3. Verify radio is powered on and broadcasting
 
-### File Not Syncing Over VPN
+### Client Cannot Connect to Server
 
 **Symptoms:**
 ```
-Client: ⚠ Cannot read discovery file: File not found
+⚠ Connection timeout to 10.255.0.1:5992
 ```
 
 **Diagnosis:**
 ```bash
-# On local PC, test file share access
-# Windows:
-dir Z:\
-# Linux:
-ls /mnt/flexradio
+# Test VPN connectivity
+ping 10.255.0.1
+
+# Test TCP port
+telnet 10.255.0.1 5992
+# or
+nc -zv 10.255.0.1 5992
 ```
 
 **Solutions:**
 1. Verify WireGuard tunnel is up: `wg show`
-2. Test connectivity: `ping 10.255.0.1`
-3. Check SMB/NFS share permissions
-4. Ensure firewall allows SMB (445) or NFS (2049)
+2. Check server firewall allows TCP 5992
+3. Verify server is running and listening
+4. Check client has correct server IP in config
 
 ### SmartSDR Sees Radio but Can't Connect
 
@@ -496,10 +442,10 @@ ping 192.168.1.50
 
 ## Summary
 
-### What v2.0 Does:
+### What v3.0 Does:
 1. ✅ **Captures** real VITA-49 packets from FlexRadio
-2. ✅ **Stores** complete packet as hex (unmodified!)
-3. ✅ **Transfers** via file share over L3 VPN
+2. ✅ **Streams** complete packet via TCP to clients
+3. ✅ **Works** over any L3 VPN (WireGuard, OpenVPN, etc.)
 4. ✅ **Rebroadcasts** authentic packet locally
 5. ✅ **SmartSDR** receives real discovery packet
 
@@ -507,11 +453,13 @@ ping 192.168.1.50
 - ❌ Generate synthetic packets (v1.x did this)
 - ❌ Modify packet contents
 - ❌ Require L2 VPN or bridging
+- ❌ Require file shares or cloud storage
 - ❌ Forward all broadcast traffic
 
 ### Why It Works With WireGuard:
 - Uses standard L3 IP routing (WireGuard's strength!)
-- File transfer is unicast (works over any VPN)
+- TCP streaming is unicast (works over any VPN)
+- Sub-second latency for discovery
 - Only rebroadcasts on local subnet (client side)
 - Radio connection uses unicast TCP/UDP (works via VPN)
 
@@ -521,19 +469,19 @@ ping 192.168.1.50
 
 ```bash
 # Remote site (192.168.1.10):
-1. Set up SMB/NFS share (one-time)
-2. Edit config-v2.ini → Shared_File_Path
-3. python FRS-Discovery-Server-v2.py
+1. Edit config.ini → verify Server_Address = 0.0.0.0
+2. Ensure firewall allows TCP 5992
+3. python FRS-Discovery-Server.py
 4. Verify packets being captured
 
 # Local PC (10.0.0.100):
-1. Mount share via WireGuard IP (one-time)
-2. Edit config-v2.ini → same Shared_File_Path
-3. python FRS-Discovery-Client-v2.py
+1. Edit config.ini → Server_Address = 10.255.0.1 (WireGuard IP)
+2. python FRS-Discovery-Client.py
+3. Verify connection to server
 4. Open SmartSDR → Radio appears!
 ```
 
-**That's it! No L2 VPN, no bridging, no TAP mode!**
+**That's it! No L2 VPN, no bridging, no TAP mode, no file shares!**
 
 ---
 

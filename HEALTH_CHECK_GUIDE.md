@@ -38,7 +38,7 @@ Version 2.1.0 introduces comprehensive health check and diagnostic capabilities 
 
 ## Configuration
 
-All health check settings are in the `[DIAGNOSTICS]` section of `config-v2.ini`:
+All health check settings are in the `[DIAGNOSTICS]` section of `config.ini`:
 
 ```ini
 [DIAGNOSTICS]
@@ -59,7 +59,7 @@ Ping_Timeout = 5.0
 Display_Interface_Info = true
 
 # For CLIENT: IP address of the server to test connectivity
-# Should be the IP of the machine running FRS-Discovery-Server-v2.py
+# Should be the IP of the machine running FRS-Discovery-Server.py
 # Leave empty to skip server connectivity tests
 Test_Server_IP = 
 
@@ -219,7 +219,7 @@ Periodic_Check_Interval = 0
    - Check for SmartSDR running locally
 
 3. **Change port (not recommended):**
-   - Modify `Discovery_Port` in config-v2.ini
+   - Modify `Discovery_Port` in config.ini
    - Note: SmartSDR expects port 4992
 
 ### Problem: "VPN/Server Connectivity - Host is not reachable"
@@ -238,7 +238,7 @@ Periodic_Check_Interval = 0
    - Check VPN client logs
 
 3. **Verify server IP:**
-   - Confirm `Test_Server_IP` in config-v2.ini
+   - Confirm `Test_Server_IP` in config.ini
    - Ensure server script is running
    - Check firewall rules
 
@@ -260,7 +260,7 @@ Periodic_Check_Interval = 0
 
 3. **Change file location:**
    - Use local path for testing: `./discovery.json`
-   - Update `Shared_File_Path` in config-v2.ini
+   - Update `Shared_File_Path` in config.ini
 
 ### Problem: "Network Interfaces - No non-loopback interfaces found"
 
@@ -413,7 +413,7 @@ Health checks are **non-invasive** and **backward compatible**:
 
 **Scenario:** Client and server on same local network.
 
-**Client config-v2.ini:**
+**Client config.ini:**
 ```ini
 [DIAGNOSTICS]
 Enable_Health_Checks = true
@@ -434,7 +434,7 @@ Test_Server_IP = 192.168.1.100
 
 **Scenario:** Client connects over WireGuard VPN.
 
-**Client config-v2.ini:**
+**Client config.ini:**
 ```ini
 [DIAGNOSTICS]
 Enable_Health_Checks = true
@@ -456,7 +456,7 @@ Ping_Timeout = 10.0
 
 **Scenario:** Server and client use OneDrive for file sharing.
 
-**Server config-v2.ini:**
+**Server config.ini:**
 ```ini
 [DIAGNOSTICS]
 Enable_Health_Checks = true
@@ -483,7 +483,7 @@ A: No, they're optional. But configuring them enables connectivity testing which
 A: No. Health checks run in parallel and don't block packet processing.
 
 **Q: Can I disable health checks?**  
-A: Yes, set `Enable_Health_Checks = false` in config-v2.ini. But it's recommended to keep them enabled.
+A: Yes, set `Enable_Health_Checks = false` in config.ini. But it's recommended to keep them enabled.
 
 **Q: What if I see warnings at startup?**  
 A: Warnings are informational. The system can still operate. Review the message to see if action is needed.
@@ -500,7 +500,7 @@ A: No, health checks are only available in v2.1.0 and later.
 
 - **[README_v2.md](README_v2.md)** - Complete v2.0 documentation
 - **[QUICKSTART_v2.md](QUICKSTART_v2.md)** - Quick setup guide
-- **[config-v2.ini](config-v2.ini)** - Configuration file with DIAGNOSTICS section
+- **[config.ini](config.ini)** - Configuration file with DIAGNOSTICS section
 - **[RELEASE_NOTES_v2.1.0.md](RELEASE_NOTES_v2.1.0.md)** - v2.1.0 release notes
 
 ---

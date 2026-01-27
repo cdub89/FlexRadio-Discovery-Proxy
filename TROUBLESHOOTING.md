@@ -26,7 +26,7 @@ This is the **complete troubleshooting guide** for the FlexRadio Discovery Proxy
 
 ### Step 1: Enable Debug Mode
 
-Edit `config-v2.ini`:
+Edit `config.ini`:
 ```ini
 [DIAGNOSTICS]
 Debug_Logging = true
@@ -44,13 +44,13 @@ Both server and client run health checks at startup. Look for:
 
 ### Step 3: Verify Mode Configuration
 
-**Server** (`config-v2.ini`):
+**Server** (`config.ini`):
 ```ini
 [SERVER]
 Stream_Mode = socket    # or 'file'
 ```
 
-**Client** (`config-v2.ini`):
+**Client** (`config.ini`):
 ```ini
 [CLIENT]
 Connection_Mode = socket    # or 'file'  - Must match server mode!
@@ -186,7 +186,7 @@ This will test the connection and show if packets are flowing.
 4. Restart scripts
 
 **Option B: Switch to File Mode**
-Edit `config-v2.ini` on BOTH machines:
+Edit `config.ini` on BOTH machines:
 ```ini
 [SERVER]
 Stream_Mode = file
@@ -201,7 +201,7 @@ Connection_Mode = file
 
 ### Enabling Debug Logging
 
-**Edit `config-v2.ini`:**
+**Edit `config.ini`:**
 ```ini
 [DIAGNOSTICS]
 Debug_Logging = true
@@ -325,7 +325,7 @@ Failed: 0
 
 ### Configuration Requirements
 
-**Server (`config-v2.ini`):**
+**Server (`config.ini`):**
 ```ini
 [SERVER]
 Stream_Mode = socket
@@ -335,7 +335,7 @@ Stream_Port = 5992
 Max_Clients = 5
 ```
 
-**Client (`config-v2.ini`):**
+**Client (`config.ini`):**
 ```ini
 [CLIENT]
 Connection_Mode = socket
@@ -408,7 +408,7 @@ Reconnect_Interval = 5.0
 
 ### Configuration Requirements
 
-**Server (`config-v2.ini`):**
+**Server (`config.ini`):**
 ```ini
 [SERVER]
 Stream_Mode = file
@@ -416,7 +416,7 @@ Shared_File_Path = .\discovery.json    # or network share path
 Update_Interval = 2.0
 ```
 
-**Client (`config-v2.ini`):**
+**Client (`config.ini`):**
 ```ini
 [CLIENT]
 Connection_Mode = file
@@ -622,7 +622,7 @@ When asking for help, provide:
 
 1. **Version information**
    - From console: "Server v2.2.0 started..."
-   - Or from script: `grep "__version__" FRS-Discovery-Server-v2.py`
+   - Or from script: `grep "__version__" FRS-Discovery-Server.py`
 
 2. **Health check results**
    - Copy full startup health check output
@@ -651,13 +651,13 @@ When asking for help, provide:
 
 ```bash
 # 1. Enable debug mode
-# Edit config-v2.ini: Debug_Logging = true
+# Edit config.ini: Debug_Logging = true
 
 # 2. Start server
-python FRS-Discovery-Server-v2.py
+python FRS-Discovery-Server.py
 
 # 3. In another terminal, start client
-python FRS-Discovery-Client-v2.py
+python FRS-Discovery-Client.py
 
 # 4. Wait 30-60 seconds
 
@@ -686,7 +686,7 @@ Use this when troubleshooting:
 
 **Pre-Flight:**
 - [ ] Running v2.2.0 or later (for socket mode)
-- [ ] config-v2.ini exists and is valid
+- [ ] config.ini exists and is valid
 - [ ] Stream_Mode/Connection_Mode match
 - [ ] Ports match in both configs
 

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-FlexRadio Discovery Client v2.2.3
-Receives FlexRadio discovery packets and rebroadcasts them locally.
+FlexRadio Discovery Client v3.0.0
+Receives FlexRadio discovery packets via TCP socket and rebroadcasts them locally.
 
 This script runs on the local PC where SmartSDR client is running.
-It receives discovery packets via TCP socket or shared file and rebroadcasts them.
+It connects to the discovery server and rebroadcasts received packets.
 
 Copyright (c) 2026 Chris L White (WX7V)
 Based on original work by VA3MW (2024)
@@ -27,7 +27,7 @@ import os
 import sys
 from health_checks import HealthChecker
 
-__version__ = "2.2.3"
+__version__ = "3.0.0"
 
 # Will be reconfigured after loading config
 logging.basicConfig(
@@ -37,7 +37,7 @@ logging.basicConfig(
 )
 
 class DiscoveryClient:
-    """Main client class handling both socket and file modes"""
+    """Main client class handling TCP socket connection"""
     def __init__(self, config):
         self.config = config
         self.running = False
@@ -45,19 +45,9 @@ class DiscoveryClient:
         # Client settings
         self.broadcast_address = config['CLIENT']['Broadcast_Address']
         self.discovery_port = int(config['CLIENT']['Discovery_Port'])
-        self.connection_mode = config['CLIENT']['Connection_Mode'].lower()
-        
-        # Socket mode settings
-        if self.connection_mode == 'socket':
-            self.server_address = config['CLIENT']['Server_Address']
-            self.stream_port = int(config['CLIENT']['Stream_Port'])
-            self.reconnect_interval = float(config['CLIENT']['Reconnect_Interval'])
-        
-        # File mode settings
-        if self.connection_mode == 'file':
-            self.shared_file_path = config['CLIENT']['Shared_File_Path']
-            self.check_interval = float(config['CLIENT']['Check_Interval'])
-            self.max_file_age = float(config['CLIENT']['Max_File_Age'])
+        self.server_address = config['CLIENT']['Server_Address']
+        self.stream_port = int(config['CLIENT']['Stream_Port'])
+        self.reconnect_interval = float(config['CLIENT']['Reconnect_Interval'])
         
         # Sockets
         self.tcp_sock = None
@@ -75,20 +65,13 @@ class DiscoveryClient:
         print("="*70)
         
         print("\nClient Configuration:")
-        print(f"  Connection Mode: {self.connection_mode.upper()}")
         print(f"  Broadcast Address: {self.broadcast_address}")
         print(f"  Discovery Port: {self.discovery_port}")
+        print(f"  Server Address: {self.server_address}")
+        print(f"  Stream Port: {self.stream_port}")
+        print(f"  Reconnect Interval: {self.reconnect_interval}s")
         
-        if self.connection_mode == 'socket':
-            print(f"  Server Address: {self.server_address}")
-            print(f"  Stream Port: {self.stream_port}")
-            print(f"  Reconnect Interval: {self.reconnect_interval}s")
-        elif self.connection_mode == 'file':
-            print(f"  Shared File: {self.shared_file_path}")
-            print(f"  Check Interval: {self.check_interval}s")
-            print(f"  Max File Age: {self.max_file_age}s")
-        
-        logging.info(f"Client v{__version__} started - Mode: {self.connection_mode}")
+        logging.info(f"Client v{__version__} started")
         
         # Run startup health checks
         health_checker = HealthChecker(self.config, mode='client', version=__version__)
@@ -106,12 +89,9 @@ class DiscoveryClient:
         
         self.running = True
         
-        # Run appropriate mode
+        # Run client
         try:
-            if self.connection_mode == 'socket':
-                self.run_socket_mode()
-            else:
-                self.run_file_mode()
+            self.run()
         except KeyboardInterrupt:
             print("\n\nShutdown requested by user...")
             logging.info(f"Client shutdown - Total broadcasts: {self.broadcast_count}")
@@ -164,8 +144,8 @@ class DiscoveryClient:
             # logging.error(f"Connection error: {e}")
             return False
     
-    def run_socket_mode(self):
-        """Run client in socket mode with TCP connection"""
+    def run(self):
+        """Run client with TCP connection to server"""
         health_checker = HealthChecker(self.config, mode='client', version=__version__)
         last_health_check = time.time()
         last_status_update = time.time()
@@ -292,105 +272,6 @@ class DiscoveryClient:
                 self.last_status = 'error'
                 time.sleep(self.reconnect_interval)
     
-    def run_file_mode(self):
-        """Run client in file mode"""
-        health_checker = HealthChecker(self.config, mode='client', version=__version__)
-        last_health_check = time.time()
-        
-        while self.running:
-            current_time = datetime.datetime.now().strftime("%H:%M:%S")
-            current_time_val = time.time()
-            
-            # Periodic health check
-            if (health_checker.enabled and 
-                health_checker.periodic_interval > 0 and 
-                current_time_val - last_health_check >= health_checker.periodic_interval):
-                
-                print(f"\n{current_time} - Running periodic health check...")
-                health_checker.run_all_checks()
-                health_checker.print_results(title="Periodic Health Check")
-                last_health_check = current_time_val
-            
-            # Read discovery file
-            packet_data, file_age_or_error = self.read_discovery_file()
-            
-            if packet_data is None:
-                # File not found or error
-                if self.last_status != 'file_error':
-                    print(f"{current_time} - ⚠ Cannot read discovery file: {file_age_or_error}")
-                    # logging.warning(f"File read error: {file_age_or_error}")
-                    self.last_status = 'file_error'
-                time.sleep(self.check_interval)
-                continue
-            
-            # Check file age
-            file_age = file_age_or_error
-            
-            if file_age > self.max_file_age:
-                # File is too old - radio may be offline
-                if self.last_status != 'stale':
-                    print(f"{current_time} - ⚠ Discovery file is stale ({file_age:.1f}s old) - Radio may be offline")
-                    # logging.warning(f"Stale discovery file: {file_age:.1f}s old")
-                    self.last_status = 'stale'
-                time.sleep(self.check_interval)
-                continue
-            
-            # Convert hex string back to bytes
-            try:
-                packet_bytes = bytes.fromhex(packet_data['packet_hex'])
-                
-                # Only broadcast if packet changed or status changed
-                if packet_data['packet_hex'] != self.last_packet_hex or self.last_status != 'broadcasting':
-                    radio_info = packet_data['radio_info']
-                    print(f"{current_time} - Radio discovered:")
-                    print(f"  {radio_info['model']} ({radio_info['nickname']})")
-                    print(f"  Callsign: {radio_info['callsign']} | IP: {radio_info['ip']}")
-                    print(f"  Status: {radio_info['status']} | Version: {radio_info['version']}")
-                    print(f"  File age: {file_age:.1f}s | Server: v{packet_data.get('server_version', 'Unknown')}")
-                    # logging.info(f"Broadcasting: {radio_info['model']} {radio_info['nickname']} - File age: {file_age:.1f}s")
-                
-                # Broadcast the packet
-                self.udp_sock.sendto(packet_bytes, (self.broadcast_address, self.discovery_port))
-                self.broadcast_count += 1
-                
-                # Status update
-                if self.last_status != 'broadcasting':
-                    print(f"{current_time} - ✓ Started broadcasting discovery packets")
-                    self.last_status = 'broadcasting'
-                else:
-                    # Periodic update
-                    if self.broadcast_count % 10 == 0:  # Every 10 broadcasts
-                        print(f"{current_time} - ✓ Broadcasting... (packet #{self.broadcast_count}, file age: {file_age:.1f}s)")
-                
-                self.last_packet_hex = packet_data['packet_hex']
-                
-            except Exception as e:
-                print(f"{current_time} - ⚠ Error broadcasting packet: {e}")
-                # logging.error(f"Broadcast error: {e}")
-            
-            # Wait before next check
-            time.sleep(self.check_interval)
-    
-    def read_discovery_file(self):
-        """Read and parse the discovery packet from shared file"""
-        try:
-            if not os.path.exists(self.shared_file_path):
-                return None, "File not found"
-            
-            # Check file age
-            file_mod_time = os.path.getmtime(self.shared_file_path)
-            file_age = time.time() - file_mod_time
-            
-            # Read file
-            with open(self.shared_file_path, 'r') as f:
-                data = json.load(f)
-            
-            return data, file_age
-        
-        except Exception as e:
-            # logging.error(f"Error reading file: {e}")
-            return None, str(e)
-    
     def stop(self):
         """Stop the client and cleanup"""
         self.running = False
@@ -410,15 +291,15 @@ class DiscoveryClient:
         logging.info(f"Client stopped - Total broadcasts: {self.broadcast_count}")
 
 def load_config():
-    """Load configuration from config-v2.ini"""
+    """Load configuration from config.ini"""
     config = configparser.ConfigParser()
     
-    if not os.path.exists('config-v2.ini'):
-        print("ERROR: config-v2.ini not found!")
-        logging.error("config-v2.ini not found")
+    if not os.path.exists('config.ini'):
+        print("ERROR: config.ini not found!")
+        logging.error("config.ini not found")
         sys.exit(1)
     
-    config.read('config-v2.ini')
+    config.read('config.ini')
     
     # Configure debug logging if enabled
     try:
@@ -428,12 +309,6 @@ def load_config():
             print("DEBUG: Debug logging enabled (check discovery-client.log for details)")
     except:
         pass
-    
-    # Validate connection mode
-    connection_mode = config['CLIENT'].get('Connection_Mode', 'file').lower()
-    if connection_mode not in ['socket', 'file']:
-        print(f"ERROR: Invalid Connection_Mode '{connection_mode}'. Must be 'socket' or 'file'")
-        sys.exit(1)
     
     return config
 

@@ -61,9 +61,9 @@ This repository contains the FlexRadio Discovery Proxy for accessing FlexRadio t
 - Health checks and diagnostics (v2.1+)
 
 **Files:**
-- `FRS-Discovery-Server-v2.py` - Server (captures packets)
-- `FRS-Discovery-Client-v2.py` - Client (rebroadcasts)
-- `config-v2.ini` - Configuration
+- `FRS-Discovery-Server.py` - Server (captures packets)
+- `FRS-Discovery-Client.py` - Client (rebroadcasts)
+- `config.ini` - Configuration
 - `health_checks.py` - Health check framework (v2.1+)
 - `FRS-Discovery-Server-v2.bat` - Windows server launcher
 - `FRS-Discovery-Client-v2.bat` - Windows client launcher
@@ -104,7 +104,7 @@ This repository contains the FlexRadio Discovery Proxy for accessing FlexRadio t
 - **v1.x (Deprecated):** See `archive/v1.x/` - No longer supported
 
 ### Configuration
-- **v2.x (Current):** See [README_v2.md](README_v2.md#configuration) - config-v2.ini setup
+- **v2.x (Current):** See [README_v2.md](README_v2.md#configuration) - config.ini setup
 - **Health Checks:** See [HEALTH_CHECK_GUIDE.md](HEALTH_CHECK_GUIDE.md) - Diagnostics configuration
 - **v1.x (Deprecated):** See `archive/v1.x/` - Not compatible with v2.x
 
@@ -176,8 +176,8 @@ This repository contains the FlexRadio Discovery Proxy for accessing FlexRadio t
 
 | File | Purpose |
 |------|---------|
-| `FRS-Discovery-Server-v2.py` | Server component (captures packets) |
-| `FRS-Discovery-Client-v2.py` | Client component (rebroadcasts packets) |
+| `FRS-Discovery-Server.py` | Server component (captures packets) |
+| `FRS-Discovery-Client.py` | Client component (rebroadcasts packets) |
 | `health_checks.py` | Health check framework (v2.1+) |
 | `test_health_checks.py` | Test suite for health checks |
 
@@ -185,7 +185,7 @@ This repository contains the FlexRadio Discovery Proxy for accessing FlexRadio t
 
 | File | Purpose |
 |------|---------|
-| `config-v2.ini` | v2.x configuration with [DIAGNOSTICS] section |
+| `config.ini` | v2.x configuration with [DIAGNOSTICS] section |
 
 ### Launchers (Windows)
 
@@ -269,14 +269,14 @@ START: New to FlexRadio Discovery Proxy?
    │  OR
    │  Read: README_v2.md (complete docs)
    │
-   ├─ Setup: config-v2.ini
+   ├─ Setup: config.ini
    │  Configure shared storage path
    │
    ├─ Run at Radio Location:
-   │  FRS-Discovery-Server-v2.py
+   │  FRS-Discovery-Server.py
    │
    ├─ Run at PC Location:
-   │  FRS-Discovery-Client-v2.py
+   │  FRS-Discovery-Client.py
    │
    └─ Open SmartSDR → Radio appears!
 

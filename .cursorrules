@@ -210,60 +210,60 @@ When implementing a FlexRadio Discovery Proxy:
 
 ---
 
-## FlexRadio Discovery Proxy - Version 2.0 Architecture
+## FlexRadio Discovery Proxy - Version 3.0 Architecture
 
 ### Overview
 
-Version 2.0 introduces a **client-server architecture** that uses **file-based communication** instead of generating synthetic packets. This approach captures and rebroadcasts authentic VITA-49 discovery packets.
+Version 3.0 uses a **streamlined client-server architecture** with **TCP socket communication**. This approach captures and streams authentic VITA-49 discovery packets in real-time.
 
 ### Architecture Components
 
-#### Server Component (FRS-Discovery-Server-v2.py)
+#### Server Component (FRS-Discovery-Server.py)
 **Location:** Runs on remote location where FlexRadio is located  
-**Purpose:** Captures authentic VITA-49 discovery broadcasts from FlexRadio
+**Purpose:** Captures authentic VITA-49 discovery broadcasts and streams to clients
 
 **Functionality:**
-1. Binds to UDP port 4992 and listens for discovery broadcasts
+1. Binds to UDP port 4992 and listens for discovery broadcasts from radio
 2. Receives and validates VITA-49 packets from radio
 3. Parses payload to extract radio information
-4. Writes complete packet data to JSON file on shared drive
-5. Rate-limits file updates to prevent excessive I/O
+4. Accepts TCP client connections on port 5992
+5. Streams complete packet data as JSON to all connected clients
 
 **Key Features:**
 - Real packet capture (not synthetic)
 - Automatic radio information extraction
-- JSON output with full packet hex dump
-- Configurable update intervals
-- Detailed logging to `discovery-server.log`
+- Real-time TCP streaming
+- Multiple simultaneous clients supported
+- Minimal logging (startup/shutdown only)
 
-#### Client Component (FRS-Discovery-Client-v2.py)
+#### Client Component (FRS-Discovery-Client.py)
 **Location:** Runs on local PC where SmartSDR client is running  
-**Purpose:** Reads captured packets and rebroadcasts to local network
+**Purpose:** Receives packets from server and rebroadcasts locally
 
 **Functionality:**
-1. Monitors shared JSON file for updates
-2. Validates file age to ensure radio is active
-3. Reads captured packet data
-4. Reconstructs VITA-49 packet from hex data
-5. Broadcasts to local network on port 4992
+1. Connects to server via TCP socket
+2. Receives streaming packet data
+3. Reconstructs VITA-49 packet from hex data
+4. Broadcasts to local network on port 4992
+5. Auto-reconnects if connection drops
 
 **Key Features:**
-- File age monitoring
-- Stale file detection
+- Real-time packet reception
+- Automatic reconnection
 - Authentic packet rebroadcast
-- Rate-limited broadcasting
-- Detailed logging to `discovery-client.log`
+- Sub-second latency
+- Minimal logging (startup/shutdown only)
 
-#### Communication File (discovery.json)
-**Location:** Shared drive (network share or cloud storage)  
-**Purpose:** Transfer discovery packet data between server and client
+#### Communication Protocol
+**Method:** TCP socket streaming  
+**Format:** JSON packets with newline delimiters
 
-**Format:**
+**Packet Format:**
 ```json
 {
-  "timestamp": "2026-01-26 14:23:45",
+  "timestamp": "2026-01-27 14:23:45",
   "timestamp_unix": 1737904425.123,
-  "server_version": "2.0.0",
+  "server_version": "3.0.0",
   "packet_hex": "38520...",
   "packet_size": 748,
   "source_ip": "192.168.0.101",
@@ -284,25 +284,25 @@ Version 2.0 introduces a **client-server architecture** that uses **file-based c
 }
 ```
 
-### Configuration (config-v2.ini)
+### Configuration (config.ini)
 
 #### Server Settings
 ```ini
 [SERVER]
 Listen_Address = 0.0.0.0              # Interface to bind (0.0.0.0 = all)
 Discovery_Port = 4992                 # FlexRadio discovery port
-Shared_File_Path = discovery.json     # Path to shared file
-Update_Interval = 2.0                 # Seconds between file writes
+Stream_Port = 5992                    # TCP port for client connections
+Max_Clients = 5                       # Maximum simultaneous clients
 ```
 
 #### Client Settings
 ```ini
 [CLIENT]
-Shared_File_Path = discovery.json     # Same file as server
+Server_Address = 192.168.0.100        # IP address of the server
+Stream_Port = 5992                    # TCP port (must match server)
 Broadcast_Address = 255.255.255.255   # Local broadcast address
 Discovery_Port = 4992                 # FlexRadio discovery port
-Check_Interval = 3.0                  # File check frequency (seconds)
-Max_File_Age = 15.0                   # Stale file threshold (seconds)
+Reconnect_Interval = 5.0              # Seconds between reconnect attempts
 ```
 
 ### Communication Flow
@@ -314,92 +314,98 @@ Max_File_Age = 15.0                   # Stale file threshold (seconds)
           ↓
 3. Server → Parses payload, extracts info
           ↓
-4. Server → Writes JSON to shared file
+4. Server → Streams JSON packet to all connected clients (TCP)
           ↓
-5. Shared Storage → Syncs file (network/cloud)
+5. Client → Receives packet in real-time
           ↓
-6. Client → Reads JSON from shared file
+6. Client → Reconstructs VITA-49 packet from hex
           ↓
-7. Client → Validates file age
+7. Client → Broadcasts to local network (UDP port 4992)
           ↓
-8. Client → Reconstructs packet from hex
-          ↓
-9. Client → Broadcasts to local network
-          ↓
-10. SmartSDR → Receives broadcast, discovers radio
+8. SmartSDR → Receives broadcast, discovers radio
 ```
+
+### Advantages Over v2.x (File Mode)
+
+1. **Simpler:** No file system dependencies
+2. **Faster:** Sub-second latency vs 5-30 seconds
+3. **Real-time:** Immediate packet delivery
+4. **Reliable:** Direct TCP connection
+5. **Cleaner:** No cloud sync or network shares needed
 
 ### Advantages Over v1.x
 
 1. **Authenticity:** Uses real VITA-49 packets, not synthetic ones
 2. **Accuracy:** Reflects actual radio status (Available, In Use, etc.)
 3. **Automatic:** No manual configuration of radio parameters needed
-4. **Flexible:** Works across any network topology (VPN, internet, cloud)
+4. **Real-time:** Sub-second latency for discovery
 5. **Future-Proof:** Automatically handles FlexRadio protocol updates
-6. **Multi-Radio:** Easy to support multiple radios with multiple instances
+6. **Multi-Client:** Multiple clients can connect simultaneously
 
 ### Use Cases
 
-1. **VPN Access with Network Share:** Server and client communicate via SMB/NFS share
-2. **Internet Access with Cloud Storage:** Dropbox/OneDrive syncs discovery.json between locations
-3. **Multiple Radios:** Run multiple server instances with different output files
-4. **Contest Stations:** Multiple operators access multiple radios via shared storage
+1. **VPN Access:** Server and client communicate over VPN tunnel
+2. **Remote Operation:** Access FlexRadio from anywhere with network connectivity
+3. **Multiple Operators:** Multiple clients connect to same server
+4. **Contest Stations:** Multiple operators monitor/access radio remotely
 
 ### Timing and Performance
 
 **Server:**
 - Packet reception: As fast as radio broadcasts (2-5 seconds)
-- File writes: Rate-limited to `Update_Interval` (default 2.0s)
-- Network overhead: Minimal (UDP receiving only)
+- Packet streaming: Immediate (real-time)
+- Network overhead: Minimal TCP streaming
 
 **Client:**
-- File checks: Every `Check_Interval` (default 3.0s)
-- Broadcasting: Immediately on file update
-- Stale detection: Warns if file age > `Max_File_Age` (default 15.0s)
+- Packet reception: Real-time (sub-second)
+- Broadcasting: Immediate
+- Reconnection: Automatic with 5-second interval
 
-**Latency Considerations:**
-- Network share: < 1 second typically
-- Cloud sync: 5-30 seconds depending on service
-- File system: Depends on storage medium and network
+**Latency:**
+- Total end-to-end: < 1 second typically
+- Network dependent: VPN adds 10-100ms
+- No file system delays
 
-### Implementation Notes for v2
+### Implementation Notes for v3
 
-When working with v2 code:
+When working with v3 code:
 
 1. **Server must be on same subnet as FlexRadio** - Cannot receive broadcasts across routers
-2. **Shared file path must be identical** - Both server and client must access same file
-3. **File age monitoring is critical** - Prevents broadcasting stale data
-4. **Packet hex preservation** - Complete packet stored as hex for accurate reconstruction
-5. **JSON format is extensible** - Can add metadata without breaking compatibility
-6. **Rate limiting prevents storms** - Both server and client use rate limiting
-7. **Logging tracks state changes** - Both components log to separate files
+2. **TCP connection required** - Client must be able to reach server's Stream_Port
+3. **Packet hex preservation** - Complete packet streamed as hex for accurate reconstruction
+4. **JSON format is extensible** - Can add metadata without breaking compatibility
+5. **Multiple clients supported** - Server broadcasts to all connected clients simultaneously
+6. **Minimal logging** - Only startup/shutdown events logged to conserve disk I/O
+7. **Auto-reconnect** - Client automatically reconnects if connection drops
 
-### Migration from v1.x
+### Migration from Previous Versions
 
-- v1.x and v2.0 are **completely independent** systems
-- No configuration carries over from v1.x to v2.0
-- v1.x uses `config.ini`, v2.0 uses `config-v2.ini`
-- Both can run simultaneously for testing
+**From v2.x:**
+- Remove any shared file or cloud sync dependencies
+- Update `config-v2.ini` to remove file mode settings
+- Ensure TCP connectivity between server and client
+- No data migration needed - just configuration changes
+
+**From v1.x:**
+- v1.x and v3.0 are **completely independent** systems
+- No configuration carries over from v1.x to v3.0
+- v1.x uses `config.ini`, v3.0 uses `config-v2.ini`
 - See `MIGRATION_GUIDE_v1_to_v2.md` for detailed migration steps
 
 ### File Structure
 
-**v1.x Files:**
+**v1.x Files (Archived):**
 - `FRS-Discovery-Proxy.py` - Single script
 - `config.ini` - Configuration
 - `broadcast.log` - Activity log
-- `FRS-Discovery-Proxy.bat` - Windows launcher
 
-**v2.0 Files:**
-- `FRS-Discovery-Server-v2.py` - Server component
-- `FRS-Discovery-Client-v2.py` - Client component
+**v3.0 Files:**
+- `FRS-Discovery-Server.py` - Server component
+- `FRS-Discovery-Client.py` - Client component
 - `config-v2.ini` - Configuration for both
-- `discovery-server.log` - Server log
-- `discovery-client.log` - Client log
-- `discovery.json` - Communication file
-- `FRS-Discovery-Server-v2.bat` - Server launcher
-- `FRS-Discovery-Client-v2.bat` - Client launcher
-- `README_v2.md` - v2 documentation
-- `RELEASE_NOTES_v2.0.0.md` - v2 release notes
-- `MIGRATION_GUIDE_v1_to_v2.md` - Migration guide
+- `discovery-server.log` - Server log (minimal)
+- `discovery-client.log` - Client log (minimal)
+- `FRS-Discovery-Server-v2.bat` - Server launcher (Windows)
+- `FRS-Discovery-Client-v2.bat` - Client launcher (Windows)
+- `README_v2.md` - Complete documentation
 - `QUICKSTART_v2.md` - Quick setup guide

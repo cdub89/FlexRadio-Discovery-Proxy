@@ -1,265 +1,237 @@
 # FlexRadio Discovery Proxy
 
-**Current Version:** v2.1.0 (Release Candidate)  
-**Status:** ✅ Active Development
-
----
-
-## ⚠️ Important: Version 1.x Deprecated
-
-**Version 1.x has been deprecated as of 2026-01-26.**
-
-- ❌ v1.x files moved to `archive/v1.x/`
-- ❌ v1.x no longer supported or maintained
-- ✅ Please use v2.x (current version)
-
-See [DEPRECATION_NOTICE.md](DEPRECATION_NOTICE.md) for details.
+**Current Version:** v3.0.0  
+**Status:** ✅ Production Ready
 
 ---
 
 ## Quick Start
 
-**For the current version (v2.x), please see:**
+### 1. Download or Clone
+```bash
+git clone https://github.com/yourusername/FlexRadio-Discovery-Proxy.git
+cd FlexRadio-Discovery-Proxy
+```
 
-### 📚 **[README_v2.md](README_v2.md)** - Complete Documentation
+### 2. Configure
+Edit `config.ini`:
+- **Server:** No changes needed (defaults work)
+- **Client:** Set `Server_Address` to your server's IP address
 
-### 🚀 **[QUICKSTART_v2.md](QUICKSTART_v2.md)** - 15-Minute Setup Guide
+### 3. Run Server (at radio location)
+```bash
+python FRS-Discovery-Server.py
+```
+or double-click `FRS-Discovery-Server.bat` (Windows)
 
-### 📋 **[INDEX.md](INDEX.md)** - Documentation Navigation
+### 4. Run Client (at SmartSDR location)
+```bash
+python FRS-Discovery-Client.py
+```
+or double-click `FRS-Discovery-Client.bat` (Windows)
+
+### 5. Start SmartSDR
+Your radio should appear in the chooser!
+
+**For detailed setup:** See [HEALTH_CHECK_GUIDE.md](HEALTH_CHECK_GUIDE.md) and [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
 
 ---
 
-## What's New in v2.1.0
+## What's New in v3.0.0
 
-### ✅ MIT License and Attribution
-- Professional open-source licensing
-- Clear copyright and disclaimers
-- FlexRadio support distinction
+### 🚀 **Major Simplification - Socket Mode Only**
+- **Removed:** File-based mode (cumbersome and slower)
+- **Focus:** TCP socket streaming only
+- **Result:** Simpler, faster, more reliable
+- **Latency:** Sub-second real-time communication
 
-### ✅ Network Health Checks
-- Automatic startup diagnostics
-- Continuous health monitoring
-- VPN/connectivity testing
-- Port availability checks
-- File permission validation
+### ✅ **Streamlined Architecture**
+- Direct TCP connection between server and client
+- No file system dependencies
+- No cloud sync required
+- Cleaner codebase
 
-### ✅ Comprehensive Documentation
-- [HEALTH_CHECK_GUIDE.md](HEALTH_CHECK_GUIDE.md) - Diagnostic guide
-- [ENHANCEMENTS_ROADMAP.md](ENHANCEMENTS_ROADMAP.md) - Future plans
-- [PROGRESS_TRACKER.md](PROGRESS_TRACKER.md) - Development tracking
+### ✅ **Minimal Logging**
+- Log files only written at startup and shutdown
+- Reduced disk I/O for better performance
+- All operational info still shown on console
 
 ---
 
-## Why v2.x?
+## Previous Versions
 
-### Advantages Over v1.x
+### v2.x (Deprecated - File Mode)
+- Supported both socket and file modes
+- File mode required shared storage (OneDrive, Dropbox, network shares)
+- More complex configuration
+- Higher latency with file mode
 
-| Feature | v1.x | v2.x |
-|---------|------|------|
-| **Packet Type** | Synthetic (fake) | Authentic (real) |
-| **Configuration** | Manual setup | Auto-detects radio info |
-| **Radio Status** | Static | Real-time |
-| **Multi-Radio** | Difficult | Easy |
-| **Health Checks** | No | Yes (v2.1+) |
-| **Support** | ❌ Deprecated | ✅ Active |
+### v1.x (Archived)
+- Generated synthetic packets
+- Single-location deployment
+- See `archive/v1.x/` for historical reference
 
 ---
 
 ## Architecture
 
-**v2.x uses a client-server model:**
+**v3.x uses a streamlined client-server model:**
 
 ### Server Component
-- Runs at radio location
-- Captures real VITA-49 packets
-- Writes to shared file
-- File: `FRS-Discovery-Server-v2.py`
+- Runs at remote location where FlexRadio is located
+- Captures real VITA-49 discovery packets from radio
+- Streams packets to connected clients via TCP
+- File: `FRS-Discovery-Server.py`
 
 ### Client Component  
-- Runs at PC location (SmartSDR)
-- Reads from shared file
-- Rebroadcasts locally
-- File: `FRS-Discovery-Client-v2.py`
+- Runs at local PC where SmartSDR is running
+- Connects to server via TCP socket
+- Receives packets in real-time
+- Rebroadcasts packets locally for SmartSDR
+- File: `FRS-Discovery-Client.py`
 
-### Shared Storage
-- Network share or cloud sync
-- OneDrive, Dropbox, Google Drive
-- Or direct network file share
+### Network Requirements
+- VPN or direct network connection between locations
+- TCP port 5992 accessible (configurable)
+- UDP port 4992 for FlexRadio discovery (standard)
 
 ---
 
-## Migration from v1.x
+## Use Cases
 
-If you're currently using v1.x:
+### Perfect For:
+✅ **VPN Access** - Access your FlexRadio over VPN from anywhere  
+✅ **Remote Operation** - Operate from home, work, mobile  
+✅ **Multiple Locations** - Multiple clients can connect to one server  
+✅ **Real-Time** - Sub-second latency for discovery packets  
 
-1. **Read:** [MIGRATION_GUIDE_v1_to_v2.md](MIGRATION_GUIDE_v1_to_v2.md)
-2. **Understand:** Architecture is completely different
-3. **Configure:** Use `config-v2.ini` (not config.ini)
-4. **Deploy:** Server at radio, client at PC
-5. **Test:** Run in parallel with v1.x before switching
+### Not Needed For:
+❌ **Same Subnet** - If SmartSDR and radio are on same network  
+❌ **Direct Network** - If discovery packets already broadcast across your network  
 
-**Note:** v1.x and v2.x configs are **NOT compatible**.
+---
+
+## Why v3.x?
+
+### Advantages Over v2.x
+
+| Feature | v2.x | v3.x |
+|---------|------|------|
+| **Socket Mode** | Optional | Standard |
+| **File Mode** | Supported | Removed |
+| **Latency** | 1-30s (file) | <1s (socket) |
+| **Configuration** | Complex | Simple |
+| **Dependencies** | File system | Network only |
+| **Setup Time** | 30 min | 15 min |
+| **Reliability** | Good | Excellent |
+
+### Advantages Over v1.x
+
+| Feature | v1.x | v3.x |
+|---------|------|------|
+| **Packet Type** | Synthetic (fake) | Authentic (real) |
+| **Configuration** | Manual setup | Auto-detects radio |
+| **Radio Status** | Static | Real-time |
+| **Multi-Radio** | Difficult | Easy |
+| **Health Checks** | No | Yes |
+| **Support** | ❌ Deprecated | ✅ Active |
 
 ---
 
 ## Installation
 
 ### Requirements
-- Python 3.6+
-- Shared storage (network share or cloud)
-- FlexRadio on network
+- **Python 3.7+** on both server and client machines
+- **Network connectivity** between server and client (VPN or direct)
+- **FlexRadio** on same subnet as server
 
 ### Quick Setup
 
-**1. Configure shared storage:**
-```ini
-# config-v2.ini
-[SERVER]
-Shared_File_Path = path/to/shared/discovery.json
+1. **Clone or download this repository**
+   ```bash
+   git clone https://github.com/yourusername/FlexRadio-Discovery-Proxy.git
+   cd FlexRadio-Discovery-Proxy
+   ```
 
-[CLIENT]
-Shared_File_Path = path/to/shared/discovery.json
-```
+2. **Configure `config.ini`**
+   - Set `Server_Address` on client to your server's IP
+   - Adjust ports if needed (default 5992)
 
-**2. Start server (at radio location):**
-```bash
-python FRS-Discovery-Server-v2.py
-```
+3. **Run server at radio location**
+   ```bash
+   python FRS-Discovery-Server.py
+   ```
 
-**3. Start client (at PC):**
-```bash
-python FRS-Discovery-Client-v2.py
-```
+4. **Run client at SmartSDR location**
+   ```bash
+   python FRS-Discovery-Client.py
+   ```
 
-**4. Open SmartSDR:**
-Radio should appear in chooser!
-
-For detailed instructions: [QUICKSTART_v2.md](QUICKSTART_v2.md)
-
----
-
-## System Requirements
-
-- **Python:** 3.6 or later
-- **OS:** Windows, macOS, Linux
-- **Network:** Shared storage or cloud sync
-- **FlexRadio:** Any FLEX-6000 or FLEX-8000 series
-
----
-
-## Key Features
-
-### v2.0.0+
-- ✅ Authentic VITA-49 packet capture
-- ✅ Client-server architecture
-- ✅ Real-time radio status
-- ✅ Auto-configuration
-- ✅ Multi-radio support
-
-### v2.1.0+ (Current)
-- ✅ Network health checks
-- ✅ Startup diagnostics
-- ✅ Periodic monitoring
-- ✅ MIT License
-- ✅ Comprehensive documentation
+5. **Start SmartSDR** - Your radio should appear!
 
 ---
 
 ## Documentation
 
-### Current Version (v2.x)
-- **[README_v2.md](README_v2.md)** - Complete documentation
-- **[QUICKSTART_v2.md](QUICKSTART_v2.md)** - Fast setup guide
-- **[HEALTH_CHECK_GUIDE.md](HEALTH_CHECK_GUIDE.md)** - Diagnostics guide
-- **[MIGRATION_GUIDE_v1_to_v2.md](MIGRATION_GUIDE_v1_to_v2.md)** - Upgrade guide
-- **[INDEX.md](INDEX.md)** - Full documentation index
+### Essential Reading
+- **[HEALTH_CHECK_GUIDE.md](HEALTH_CHECK_GUIDE.md)** - Diagnostics and troubleshooting
+- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - Common issues and solutions
+- **[INDEX.md](INDEX.md)** - Complete documentation index
 
-### Planning & Roadmap
-- **[ENHANCEMENTS_ROADMAP.md](ENHANCEMENTS_ROADMAP.md)** - Future features
-- **[PROGRESS_TRACKER.md](PROGRESS_TRACKER.md)** - Development progress
-- **[RELEASE_NOTES_v2.1.0.md](RELEASE_NOTES_v2.1.0.md)** - Latest changes
+### Reference
+- **[RELEASE_NOTES_v3.0.0.md](RELEASE_NOTES_v3.0.0.md)** - Current release notes
+- **[ENHANCEMENTS_ROADMAP.md](ENHANCEMENTS_ROADMAP.md)** - Future plans
+- **[L3VPN_SOLUTION_GUIDE.md](L3VPN_SOLUTION_GUIDE.md)** - VPN setup guide
 
-### Deprecated (v1.x)
-- **[archive/](archive/)** - Archived v1.x files
-- **[DEPRECATION_NOTICE.md](DEPRECATION_NOTICE.md)** - Deprecation details
-
----
-
-## License
-
-**Copyright © 2026 Chris L White (WX7V)**  
-Based on original work by VA3MW (2024)
-
-Licensed under the **MIT License** - see [LICENSE](LICENSE) file.
-
-### Important Disclaimer
-
-**⚠️ This software is NOT officially supported by FlexRadio Systems, Inc., its employees, or its help desk.**
-
-This is an independent, community-developed tool. For official FlexRadio support:
-- **Website:** https://www.flexradio.com
-- **Help Desk:** https://helpdesk.flexradio.com
-- **Community:** https://community.flexradio.com
+### Archive
+- **[archive/](archive/)** - Previous versions (v1.x, v2.x)
 
 ---
 
 ## Support
 
-### For This Community Tool:
-- **GitHub Issues:** Report bugs or ask questions
-- **QRZ:** WX7V
-- **Documentation:** See INDEX.md for complete guide
+### ⚠️ Important Notice
 
-### For Official FlexRadio Products:
-- Use the links in the Disclaimer section above
+This software is **NOT officially supported** by FlexRadio Systems, Inc., its employees, or its help desk. This is an independent community tool.
 
----
+**For official FlexRadio support:** https://www.flexradio.com
 
-## Quick Links
+### Community Support
 
-| Link | Purpose |
-|------|---------|
-| [README_v2.md](README_v2.md) | **Start here** for v2.x documentation |
-| [QUICKSTART_v2.md](QUICKSTART_v2.md) | 15-minute setup guide |
-| [HEALTH_CHECK_GUIDE.md](HEALTH_CHECK_GUIDE.md) | Troubleshooting diagnostics |
-| [INDEX.md](INDEX.md) | Complete documentation index |
-| [DEPRECATION_NOTICE.md](DEPRECATION_NOTICE.md) | v1.x deprecation notice |
-| [archive/](archive/) | Archived v1.x files |
+- GitHub Issues: Report bugs or request features
+- Discussions: Share experiences and solutions
+- Pull Requests: Contributions welcome!
 
 ---
 
-## Version History
+## License
 
-| Version | Date | Status | Notes |
-|---------|------|--------|-------|
-| **v2.1.0** | 2026-01-26 | ✅ Release Candidate | Health checks + license |
-| **v2.0.0** | 2026-01-26 | ✅ Stable | Client-server architecture |
-| v1.0.1 | 2026-01-22 | ❌ Deprecated | Moved to archive/ |
-| v1.0.0 | 2026-01-20 | ❌ Deprecated | Moved to archive/ |
+MIT License - See [LICENSE](LICENSE) file for details
 
----
-
-## Contributing
-
-Contributions welcome! Please:
-1. Test thoroughly before submitting
-2. Update documentation as needed
-3. Follow existing code style
-4. Include examples for new features
-
-All contributions under MIT License terms.
+Copyright (c) 2026 Chris L White (WX7V)  
+Based on original work by VA3MW (2024)
 
 ---
 
 ## Credits
 
-- **Original Concept:** VA3MW - FlexRadio Broadcast Wedge (2024)
-- **v1.x Fork:** Chris L White, WX7V (2026)
-- **v2.x Architecture:** Chris L White, WX7V (2026)
-- **Protocol Documentation:** FlexRadio Systems VITA-49 implementation
+- **Original Concept:** VA3MW (v1.x)
+- **v2.x/v3.x Development:** WX7V
+- **FlexRadio VITA-49 Protocol:** FlexRadio Systems, Inc.
 
 ---
 
-**For current version documentation, see: [README_v2.md](README_v2.md)**
+## Quick Links
 
-**73 de WX7V**
+| Document | Purpose |
+|----------|---------|
+| [HEALTH_CHECK_GUIDE.md](HEALTH_CHECK_GUIDE.md) | Diagnostic tools and health checks |
+| [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | Fix common problems |
+| [RELEASE_NOTES_v3.0.0.md](RELEASE_NOTES_v3.0.0.md) | What's new in v3.0 |
+| [L3VPN_SOLUTION_GUIDE.md](L3VPN_SOLUTION_GUIDE.md) | VPN setup guide |
+| [INDEX.md](INDEX.md) | Complete documentation index |
+
+---
+
+**Version 3.0.0** - Socket-Only Edition  
+*Simpler. Faster. Better.*
