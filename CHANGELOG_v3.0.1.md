@@ -22,7 +22,18 @@ Version 3.0.1 introduces intelligent logging enhancements for both server and cl
 
 #### New Features
 
-1. **Log Rotation at Startup with Automatic Cleanup**
+1. **Cached Packet Mode for Offline Operation (Client)**
+   - **Automatic packet caching:** Client saves last received discovery packet to disk
+   - **Offline fallback:** When server is unreachable, client uses cached packet
+   - **Continuous broadcasting:** Cached packet broadcasts at configurable interval
+   - **Background reconnection:** Client continues trying to reconnect while in cached mode
+   - **Automatic mode switching:** Seamlessly switches between LIVE and CACHED modes
+   - **Cache age validation:** Configurable maximum age for cached packets
+   - **Visual indicators:** Console shows current mode [LIVE] or [CACHED]
+   - **Resilient operation:** Maintains radio visibility even when server is down
+   - **Perfect for:** VPN disruptions, server maintenance, network issues
+
+2. **Log Rotation at Startup with Automatic Cleanup**
    - Automatically archives existing log files on startup
    - Archived files are timestamped with the original file's modification time
    - Format: `discovery-server_YYYYMMDD_HHMMSS.log`
@@ -61,8 +72,35 @@ Version 3.0.1 introduces intelligent logging enhancements for both server and cl
 
 #### Configuration
 
-**New Setting in `config.ini`:**
+**New Settings in `config.ini`:**
 
+**Client Cache Settings:**
+```ini
+[CLIENT]
+# Cache settings for offline operation
+# File to store last received discovery packet
+Cached_Packet_File = last_discovery_packet.json
+
+# Use cached packet when server is unreachable (true/false)
+Use_Cached_Packet = true
+
+# Maximum age of cached packet in seconds (0 = no limit)
+# If cached packet is older than this, it won't be used
+Max_Cache_Age = 3600
+
+# Broadcast interval when using cached packet (seconds)
+# How often to rebroadcast the cached packet when server is offline
+Cached_Broadcast_Interval = 3.0
+```
+
+**Cache Configuration Examples:**
+- `Use_Cached_Packet = true`: Enable cached packet fallback (default, recommended)
+- `Use_Cached_Packet = false`: Disable cached mode (stop broadcasting when server is down)
+- `Max_Cache_Age = 3600`: Use cached packet if less than 1 hour old
+- `Max_Cache_Age = 0`: Use cached packet regardless of age
+- `Cached_Broadcast_Interval = 3.0`: Broadcast every 3 seconds in cached mode
+
+**Log Rotation Settings:**
 ```ini
 [DIAGNOSTICS]
 # Maximum number of rotated log files to keep
@@ -71,7 +109,7 @@ Version 3.0.1 introduces intelligent logging enhancements for both server and cl
 Max_Log_Files = 2
 ```
 
-**Examples:**
+**Log Rotation Examples:**
 - `Max_Log_Files = 2` (default): Keeps 2 most recent archived logs
 - `Max_Log_Files = 5`: Keeps 5 most recent archived logs
 - `Max_Log_Files = 0`: Keeps all archived logs (no automatic deletion)
@@ -103,6 +141,35 @@ Max_Log_Files = 2
 - Controls automatic cleanup of old archived log files
 
 #### Example Startup Output
+
+**Client in Cached Mode (Server Unreachable):**
+```
+Connecting to server 192.168.0.100:5992...
+⚠ Connection timeout to 192.168.0.100:5992
+
+14:30:52 - ⚠ Server unreachable after 1 attempts
+  Switching to CACHED PACKET MODE
+  Broadcasting cached discovery packet every 3.0s
+  Will continue trying to reconnect to server...
+
+14:30:52 - [CACHED MODE] Broadcasting FLEX-6600 (packet #1)
+  Reconnect attempts: 5 | Next attempt in 5s
+
+✓ Loaded cached packet from 2026-01-28 13:45:30
+  Cache age: 2722 seconds
+
+14:31:12 - [CACHED MODE] Broadcasting FLEX-6600 (packet #20)
+  Reconnect attempts: 10 | Next attempt in 5s
+
+14:31:42 - ✓ Reconnected to server - switching to LIVE MODE
+
+14:31:45 - Radio discovered:
+  FLEX-6600 (Lake6600)
+  Callsign: WX7V | IP: 192.168.0.101
+  Status: Available | Version: 4.1.5.39794
+  Server: v3.0.1
+14:31:45 - ✓ Started broadcasting discovery packets [LIVE MODE]
+```
 
 **Log Rotation and Cleanup:**
 ```
@@ -190,6 +257,11 @@ Deleted old log file: discovery-server_20260128_095423.log
 
 #### Benefits
 
+- **Resilient Operation:** Client continues working even when server is unreachable
+- **Seamless Fallback:** Automatic switch to cached mode with no user intervention
+- **Continuous Visibility:** SmartSDR can always discover the radio
+- **VPN-Friendly:** Handles temporary VPN disconnections gracefully
+- **Background Recovery:** Automatically reconnects when server becomes available
 - **Complete Packet Analysis:** Full hex dump enables deep troubleshooting
 - **Readable Field Values:** All discovery fields displayed in human-readable format
 - **Protocol Analysis:** Hex dump shows VITA-49 header structure
@@ -210,9 +282,22 @@ Deleted old log file: discovery-server_20260128_095423.log
 #### Files Modified
 
 - `FRS-Discovery-Server.py` → v3.0.1
+  - Enhanced logging with full hex dumps
+  - Payload change detection
+  - Log flushing
 - `FRS-Discovery-Client.py` → v3.0.1
+  - **Cached packet mode for offline operation**
+  - Enhanced logging with full hex dumps
+  - Payload change detection
+  - Log flushing
+  - Automatic mode switching (LIVE ↔ CACHED)
 - `health_checks.py` → Bug fix for v3.0 compatibility
-- `config.ini` → Added `Max_Log_Files` setting
+- `config.ini` → Added cache settings and log rotation setting
+  - `Cached_Packet_File`
+  - `Use_Cached_Packet`
+  - `Max_Cache_Age`
+  - `Cached_Broadcast_Interval`
+  - `Max_Log_Files`
 
 #### Upgrade Instructions
 

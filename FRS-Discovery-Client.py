@@ -110,6 +110,12 @@ class DiscoveryClient:
         self.stream_port = int(config['CLIENT']['Stream_Port'])
         self.reconnect_interval = float(config['CLIENT']['Reconnect_Interval'])
         
+        # Cache settings
+        self.cached_packet_file = config['CLIENT'].get('Cached_Packet_File', 'last_discovery_packet.json')
+        self.use_cached_packet = config['CLIENT'].getboolean('Use_Cached_Packet', fallback=True)
+        self.max_cache_age = int(config['CLIENT'].get('Max_Cache_Age', 3600))
+        self.cached_broadcast_interval = float(config['CLIENT'].get('Cached_Broadcast_Interval', 3.0))
+        
         # Sockets
         self.tcp_sock = None
         self.udp_sock = None
@@ -122,6 +128,10 @@ class DiscoveryClient:
         # Track payload changes
         self.last_payload = None
         self.first_packet_received = False
+        
+        # Cached packet mode
+        self.using_cached_packet = False
+        self.cached_packet_data = None
         
     def start(self):
         """Start the client"""
@@ -172,6 +182,44 @@ class DiscoveryClient:
         self.udp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         self.udp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     
+    def save_cached_packet(self, packet_data):
+        """Save discovery packet to cache file for offline use"""
+        try:
+            cache_data = {
+                'timestamp': time.time(),
+                'saved_at': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                'packet_data': packet_data
+            }
+            with open(self.cached_packet_file, 'w') as f:
+                json.dump(cache_data, f, indent=2)
+        except Exception as e:
+            print(f"⚠ Warning: Could not save cached packet: {e}")
+    
+    def load_cached_packet(self):
+        """Load cached discovery packet from file"""
+        try:
+            if not os.path.exists(self.cached_packet_file):
+                return None
+            
+            with open(self.cached_packet_file, 'r') as f:
+                cache_data = json.load(f)
+            
+            # Check cache age
+            cached_time = cache_data.get('timestamp', 0)
+            age_seconds = time.time() - cached_time
+            
+            if self.max_cache_age > 0 and age_seconds > self.max_cache_age:
+                print(f"⚠ Cached packet is {age_seconds:.0f}s old (max age: {self.max_cache_age}s) - too old to use")
+                return None
+            
+            print(f"✓ Loaded cached packet from {cache_data.get('saved_at', 'unknown time')}")
+            print(f"  Cache age: {age_seconds:.0f} seconds")
+            return cache_data['packet_data']
+            
+        except Exception as e:
+            print(f"⚠ Warning: Could not load cached packet: {e}")
+            return None
+    
     def connect_to_server(self):
         """Connect to the server via TCP"""
         try:
@@ -214,15 +262,79 @@ class DiscoveryClient:
         health_checker = HealthChecker(self.config, mode='client', version=__version__)
         last_health_check = time.time()
         last_status_update = time.time()
+        last_cached_broadcast = 0
         buffer = ""  # Buffer for incomplete JSON messages
+        reconnect_attempts = 0
         
         while self.running:
             # Try to connect if not connected
             if not self.tcp_sock:
                 if not self.connect_to_server():
-                    print(f"Retrying in {self.reconnect_interval} seconds...")
-                    time.sleep(self.reconnect_interval)
+                    reconnect_attempts += 1
+                    
+                    # Try to use cached packet if enabled and not already using it
+                    if self.use_cached_packet and not self.using_cached_packet:
+                        if self.cached_packet_data is None:
+                            self.cached_packet_data = self.load_cached_packet()
+                        
+                        if self.cached_packet_data:
+                            self.using_cached_packet = True
+                            current_time = datetime.datetime.now().strftime("%H:%M:%S")
+                            print(f"\n{current_time} - ⚠ Server unreachable after {reconnect_attempts} attempts")
+                            print(f"  Switching to CACHED PACKET MODE")
+                            print(f"  Broadcasting cached discovery packet every {self.cached_broadcast_interval}s")
+                            print(f"  Will continue trying to reconnect to server...\n")
+                            
+                            # Log the switch to cached mode
+                            radio_info = self.cached_packet_data.get('radio_info', {})
+                            logging.warning(f"Server unreachable - switched to cached packet mode")
+                            logging.info(f"  Broadcasting cached packet: {radio_info.get('model', 'Unknown')} ({radio_info.get('nickname', 'Unknown')})")
+                            logging.info(f"  Last received: {self.cached_packet_data.get('timestamp', 'Unknown')}")
+                            
+                            # Flush log
+                            for handler in logging.getLogger().handlers:
+                                handler.flush()
+                    
+                    # If using cached packet, broadcast it while waiting to reconnect
+                    if self.using_cached_packet and self.cached_packet_data:
+                        current_time_val = time.time()
+                        
+                        # Broadcast cached packet at regular intervals
+                        if current_time_val - last_cached_broadcast >= self.cached_broadcast_interval:
+                            try:
+                                packet_bytes = bytes.fromhex(self.cached_packet_data['packet_hex'])
+                                self.udp_sock.sendto(packet_bytes, (self.broadcast_address, self.discovery_port))
+                                self.broadcast_count += 1
+                                last_cached_broadcast = current_time_val
+                                
+                                # Periodic status message
+                                if self.broadcast_count % 20 == 0:
+                                    current_time = datetime.datetime.now().strftime("%H:%M:%S")
+                                    radio_info = self.cached_packet_data.get('radio_info', {})
+                                    print(f"{current_time} - [CACHED MODE] Broadcasting {radio_info.get('model', 'Unknown')} (packet #{self.broadcast_count})")
+                                    print(f"  Reconnect attempts: {reconnect_attempts} | Next attempt in {self.reconnect_interval:.0f}s")
+                            except Exception as e:
+                                print(f"⚠ Error broadcasting cached packet: {e}")
+                        
+                        # Wait a bit before next reconnect attempt
+                        time.sleep(0.5)
+                    else:
+                        # No cached packet available
+                        if reconnect_attempts == 1 and self.use_cached_packet:
+                            print(f"  No cached packet available for offline mode")
+                        print(f"Retrying in {self.reconnect_interval} seconds...")
+                        time.sleep(self.reconnect_interval)
+                    
                     continue
+                else:
+                    # Successfully connected
+                    if self.using_cached_packet:
+                        current_time = datetime.datetime.now().strftime("%H:%M:%S")
+                        print(f"\n{current_time} - ✓ Reconnected to server - switching to LIVE MODE\n")
+                        logging.info("Reconnected to server - switched from cached to live mode")
+                        self.using_cached_packet = False
+                    
+                    reconnect_attempts = 0
             
             try:
                 # Receive data from server (with timeout)
@@ -391,14 +503,20 @@ class DiscoveryClient:
                         self.udp_sock.sendto(packet_bytes, (self.broadcast_address, self.discovery_port))
                         self.broadcast_count += 1
                         
+                        # Save packet to cache for offline use
+                        if self.use_cached_packet:
+                            self.save_cached_packet(packet_data)
+                            self.cached_packet_data = packet_data  # Keep in memory too
+                        
                         # Status update
                         if self.last_status != 'broadcasting':
-                            print(f"{current_time} - ✓ Started broadcasting discovery packets")
+                            print(f"{current_time} - ✓ Started broadcasting discovery packets [LIVE MODE]")
                             self.last_status = 'broadcasting'
                         else:
                             # Periodic update
                             if self.broadcast_count % 10 == 0:  # Every 10 broadcasts
-                                print(f"{current_time} - ✓ Broadcasting... (packet #{self.broadcast_count})")
+                                mode_indicator = "[LIVE]" if not self.using_cached_packet else "[CACHED]"
+                                print(f"{current_time} - ✓ {mode_indicator} Broadcasting... (packet #{self.broadcast_count})")
                         
                         self.last_packet_hex = packet_data['packet_hex']
                         
