@@ -27,16 +27,77 @@ import os
 import sys
 import threading
 import select
+import shutil
+import glob
 from health_checks import HealthChecker, HealthStatus
 
-__version__ = "3.0.0"
+__version__ = "3.0.1"
 
-# Will be reconfigured after loading config
-logging.basicConfig(
-    filename='discovery-server.log',
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+# Logging will be configured after log rotation
+LOG_FILE = 'discovery-server.log'
+
+def rotate_log_file(log_file, max_log_files=2):
+    """Rotate log file at startup by renaming with timestamp and clean up old logs
+    
+    Args:
+        log_file: Path to the log file to rotate
+        max_log_files: Maximum number of archived log files to keep (0 = keep all)
+    """
+    if os.path.exists(log_file):
+        # Get file modification time for timestamp
+        try:
+            file_time = os.path.getmtime(log_file)
+            timestamp = datetime.datetime.fromtimestamp(file_time).strftime("%Y%m%d_%H%M%S")
+            
+            # Create archived filename
+            base_name = os.path.splitext(log_file)[0]
+            ext = os.path.splitext(log_file)[1]
+            archived_name = f"{base_name}_{timestamp}{ext}"
+            
+            # Rename existing log
+            shutil.move(log_file, archived_name)
+            print(f"Rotated log file: {log_file} → {archived_name}")
+            
+            # Clean up old log files if max_log_files is set
+            if max_log_files > 0:
+                cleanup_old_logs(log_file, max_log_files)
+            
+            return True
+        except Exception as e:
+            print(f"Warning: Could not rotate log file: {e}")
+            return False
+    return False
+
+def cleanup_old_logs(log_file, max_log_files):
+    """Remove old archived log files beyond the specified limit
+    
+    Args:
+        log_file: Base log file name
+        max_log_files: Maximum number of archived logs to keep
+    """
+    try:
+        base_name = os.path.splitext(log_file)[0]
+        ext = os.path.splitext(log_file)[1]
+        directory = os.path.dirname(log_file) or '.'
+        
+        # Find all archived log files matching the pattern
+        pattern = os.path.join(directory, f"{os.path.basename(base_name)}_*{ext}")
+        archived_logs = glob.glob(pattern)
+        
+        # Sort by modification time (oldest first)
+        archived_logs.sort(key=lambda x: os.path.getmtime(x))
+        
+        # Delete oldest files if we exceed the limit
+        files_to_delete = len(archived_logs) - max_log_files
+        if files_to_delete > 0:
+            for old_log in archived_logs[:files_to_delete]:
+                try:
+                    os.remove(old_log)
+                    print(f"Deleted old log file: {old_log}")
+                except Exception as e:
+                    print(f"Warning: Could not delete old log file {old_log}: {e}")
+    except Exception as e:
+        print(f"Warning: Could not cleanup old log files: {e}")
 
 class ClientConnection:
     """Represents a connected client"""
@@ -81,6 +142,10 @@ class DiscoveryServer:
         # Statistics
         self.packet_count = 0
         self.last_packet_time = None
+        
+        # Track payload changes
+        self.last_payload = None
+        self.first_packet_received = False
         
     def start(self):
         """Start the server"""
@@ -317,6 +382,111 @@ class DiscoveryServer:
                         
                         print(f"[{timestamp}] {radio_info['model']} ({radio_info['nickname']}) - {radio_info['callsign']} @ {radio_info['ip']} - {radio_info['status']}")
                         
+                        # Log initial packet or payload changes
+                        payload_changed = (payload != self.last_payload)
+                        
+                        if not self.first_packet_received:
+                            # Log the first discovery packet with full details
+                            logging.info("=" * 80)
+                            logging.info(f"INITIAL DISCOVERY PACKET - {timestamp}")
+                            logging.info("=" * 80)
+                            logging.info(f"Radio: {radio_info['model']} ({radio_info['nickname']})")
+                            logging.info(f"Callsign: {radio_info['callsign']} | IP: {radio_info['ip']}")
+                            logging.info(f"Status: {radio_info['status']} | Version: {radio_info['version']}")
+                            logging.info(f"Serial: {radio_info['serial']}")
+                            logging.info(f"Source: {addr[0]}:{addr[1]} | Packet Size: {len(data)} bytes")
+                            logging.info("")
+                            
+                            # Log full hex dump
+                            logging.info("Full Packet Hex Dump:")
+                            logging.info("-" * 80)
+                            # Format hex dump in 16-byte lines with offset
+                            for i in range(0, len(data), 16):
+                                hex_part = ' '.join(f"{b:02x}" for b in data[i:i+16])
+                                ascii_part = ''.join(chr(b) if 32 <= b < 127 else '.' for b in data[i:i+16])
+                                logging.info(f"{i:04x}  {hex_part:<48}  {ascii_part}")
+                            logging.info("-" * 80)
+                            logging.info("")
+                            
+                            # Log all parsed fields
+                            logging.info("Parsed Discovery Fields:")
+                            logging.info("-" * 80)
+                            for key, value in sorted(parsed_info.items()):
+                                logging.info(f"  {key:30} = {value}")
+                            logging.info("=" * 80)
+                            logging.info("")
+                            
+                            # Flush log to disk immediately
+                            for handler in logging.getLogger().handlers:
+                                handler.flush()
+                            
+                            print(f"   ℹ Initial discovery packet logged to {LOG_FILE} (full hex dump included)")
+                            self.first_packet_received = True
+                            self.last_payload = payload
+                        elif payload_changed:
+                            # Log when payload changes with full details
+                            logging.info("=" * 80)
+                            logging.info(f"DISCOVERY PAYLOAD CHANGED - {timestamp}")
+                            logging.info("=" * 80)
+                            logging.info(f"Radio: {radio_info['model']} ({radio_info['nickname']})")
+                            logging.info(f"Callsign: {radio_info['callsign']} | IP: {radio_info['ip']}")
+                            logging.info(f"Status: {radio_info['status']} | Version: {radio_info['version']}")
+                            logging.info(f"Source: {addr[0]}:{addr[1]} | Packet Size: {len(data)} bytes")
+                            logging.info("")
+                            
+                            # Log specific changed fields
+                            if self.last_payload:
+                                old_parsed = self.parse_discovery_payload(self.last_payload)
+                                changed_fields = []
+                                for key in parsed_info.keys():
+                                    if key in old_parsed and parsed_info[key] != old_parsed.get(key):
+                                        changed_fields.append((key, old_parsed.get(key), parsed_info[key]))
+                                    elif key not in old_parsed:
+                                        changed_fields.append((key, None, parsed_info[key]))
+                                
+                                # Check for removed fields
+                                for key in old_parsed.keys():
+                                    if key not in parsed_info:
+                                        changed_fields.append((key, old_parsed[key], None))
+                                
+                                if changed_fields:
+                                    logging.info("Changed Fields:")
+                                    logging.info("-" * 80)
+                                    for key, old_val, new_val in changed_fields:
+                                        if old_val is None:
+                                            logging.info(f"  {key:30} = (new) '{new_val}'")
+                                        elif new_val is None:
+                                            logging.info(f"  {key:30} = (removed) was '{old_val}'")
+                                        else:
+                                            logging.info(f"  {key:30} = '{old_val}' → '{new_val}'")
+                                    logging.info("")
+                            
+                            # Log full hex dump
+                            logging.info("Full Packet Hex Dump:")
+                            logging.info("-" * 80)
+                            # Format hex dump in 16-byte lines with offset
+                            for i in range(0, len(data), 16):
+                                hex_part = ' '.join(f"{b:02x}" for b in data[i:i+16])
+                                ascii_part = ''.join(chr(b) if 32 <= b < 127 else '.' for b in data[i:i+16])
+                                logging.info(f"{i:04x}  {hex_part:<48}  {ascii_part}")
+                            logging.info("-" * 80)
+                            logging.info("")
+                            
+                            # Log all current parsed fields
+                            logging.info("All Current Discovery Fields:")
+                            logging.info("-" * 80)
+                            for key, value in sorted(parsed_info.items()):
+                                logging.info(f"  {key:30} = {value}")
+                            logging.info("=" * 80)
+                            logging.info("")
+                            
+                            # Flush log to disk immediately
+                            for handler in logging.getLogger().handlers:
+                                handler.flush()
+                            
+                            print(f"   ℹ Payload change logged to {LOG_FILE} (full hex dump included)")
+                            self.last_payload = payload
+                        
                         # Prepare complete packet data for distribution
                         # This includes: header, stream_id, timestamps, payload - everything
                         packet_data = {
@@ -408,10 +578,23 @@ def load_config():
     
     if not os.path.exists('config.ini'):
         print("ERROR: config.ini not found!")
-        logging.error("config.ini not found")
         sys.exit(1)
     
     config.read('config.ini')
+    
+    # Get max log files setting
+    max_log_files = config.getint('DIAGNOSTICS', 'Max_Log_Files', fallback=2)
+    
+    # Rotate log file at startup
+    rotate_log_file(LOG_FILE, max_log_files)
+    
+    # Configure logging after rotation
+    logging.basicConfig(
+        filename=LOG_FILE,
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        force=True  # Override any existing configuration
+    )
     
     # Configure debug logging if enabled
     try:

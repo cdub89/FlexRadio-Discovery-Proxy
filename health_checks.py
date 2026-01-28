@@ -104,7 +104,8 @@ class HealthChecker:
         self.results.append(self._check_udp_port_available(discovery_port))
         
         # Check stream mode configuration
-        stream_mode = self.config['SERVER'].get('Stream_Mode', 'file').lower()
+        # v3.0+ defaults to socket mode (file mode is legacy v2.x)
+        stream_mode = self.config['SERVER'].get('Stream_Mode', 'socket').lower()
         
         # Socket mode checks
         if stream_mode == 'socket':
@@ -115,10 +116,19 @@ class HealthChecker:
             if not skip_listener_check:
                 self.results.append(self._check_tcp_listener(stream_port))
         
-        # File mode checks
-        if stream_mode == 'file':
-            shared_file = self.config['SERVER']['Shared_File_Path']
-            self.results.append(self._check_file_write_permission(shared_file))
+        # File mode checks (legacy v2.x only)
+        elif stream_mode == 'file':
+            # Only check file path if it's configured
+            if 'Shared_File_Path' in self.config['SERVER']:
+                shared_file = self.config['SERVER']['Shared_File_Path']
+                self.results.append(self._check_file_write_permission(shared_file))
+            else:
+                # File mode configured but no path provided
+                self.results.append(HealthCheckResult(
+                    name="File Mode Configuration",
+                    status=HealthStatus.FAIL,
+                    message="Stream_Mode set to 'file' but Shared_File_Path not configured"
+                ))
         
         # Radio reachability (if configured)
         if self.test_radio_ip:
@@ -137,7 +147,8 @@ class HealthChecker:
         self.results.append(self._check_broadcast_capability())
         
         # Check connection mode configuration
-        connection_mode = self.config['CLIENT'].get('Connection_Mode', 'file').lower()
+        # v3.0+ defaults to socket mode (file mode is legacy v2.x)
+        connection_mode = self.config['CLIENT'].get('Connection_Mode', 'socket').lower()
         
         # Socket mode checks
         if connection_mode == 'socket':
@@ -149,10 +160,19 @@ class HealthChecker:
             if server_address:
                 self.results.append(self._check_ping(server_address, "Server"))
         
-        # File mode checks  
-        if connection_mode == 'file':
-            shared_file = self.config['CLIENT']['Shared_File_Path']
-            self.results.append(self._check_file_read_permission(shared_file))
+        # File mode checks (legacy v2.x only)
+        elif connection_mode == 'file':
+            # Only check file path if it's configured
+            if 'Shared_File_Path' in self.config['CLIENT']:
+                shared_file = self.config['CLIENT']['Shared_File_Path']
+                self.results.append(self._check_file_read_permission(shared_file))
+            else:
+                # File mode configured but no path provided
+                self.results.append(HealthCheckResult(
+                    name="File Mode Configuration",
+                    status=HealthStatus.FAIL,
+                    message="Connection_Mode set to 'file' but Shared_File_Path not configured"
+                ))
             
             # VPN/Server connectivity (if configured separately)
             if self.test_server_ip and self.test_server_ip != server_address if connection_mode == 'socket' else True:
