@@ -1,0 +1,53 @@
+{
+  "timestamp": 1700000000.123456,
+  "saved_at": "2024-01-01 12:00:00",
+  "packet_data": {
+    "timestamp": "2024-01-01 12:00:00",
+    "timestamp_unix": 1700000000.123456,
+    "server_version": "3.0.1",
+    "packet_hex": "385e00b40000080000001c2d534cffff697a60270000000000000000646973636f766572795f70726f746f636f6c5f76657273696f6e3d332e312e302e32206d6f64656c3d464c45582d363630302073657269616c3d313233342d353637382d363630302d303030312076657273696f6e3d342e312e352e3339373934206e69636b6e616d653d4578616d706c65526164696f2063616c6c7369676e3d4e30434c4c2069703d3130302e3132332e3435362e37383920706f72743d34393932207374617475733d417661696c61626c6520696e7573655f69703d302e302e302e3020696e7573655f686f73743d206d61785f6c6963656e7365645f76657273696f6e3d763420726164696f5f6c6963656e73655f69643d30302d31432d32442d30302d30302d30302066706336d6163d2077616e5f636f6e6e65637465643d31206c6963656e7365645f636c69656e74733d3220617661696c61626c655f636c69656e74733d3220617661696c61626c655f70616e61646170746572733d34206d61785f736c696365733d3420617661696c61626c655f736c696365733d34206775695f636c69656e745f6970733d206775695f636c69656e745f686f7374733d206775695f636c69656e745f70726f6772616d733d206775695f636c69656e745f73746174696f6e733d206775695f636c69656e745f68616e646c65733d206d696e5f736f6674776172655f76657273696f6e3d322e312e32302e302065787465726e616c5f706f72745f6c696e6b3d31206c6963656e73655f69735f756e6b6e6f776e3d30000000",
+    "packet_size": 720,
+    "source_ip": "10.0.0.50",
+    "source_port": 4992,
+    "radio_info": {
+      "model": "FLEX-6600",
+      "serial": "1234-5678-6600-0001",
+      "ip": "10.0.0.50",
+      "nickname": "ExampleRadio",
+      "callsign": "N0CALL",
+      "version": "4.1.5.39794",
+      "status": "Available"
+    },
+    "parsed_payload": {
+      "discovery_protocol_version": "3.1.0.2",
+      "model": "FLEX-6600",
+      "serial": "1234-5678-6600-0001",
+      "version": "4.1.5.39794",
+      "nickname": "ExampleRadio",
+      "callsign": "N0CALL",
+      "ip": "10.0.0.50",
+      "port": "4992",
+      "status": "Available",
+      "inuse_ip": "0.0.0.0",
+      "inuse_host": "",
+      "max_licensed_version": "v4",
+      "radio_license_id": "00-1C-2D-00-00-00",
+      "fpc_mac": "",
+      "wan_connected": "1",
+      "licensed_clients": "2",
+      "available_clients": "2",
+      "max_panadapters": "4",
+      "available_panadapters": "4",
+      "max_slices": "4",
+      "available_slices": "4",
+      "gui_client_ips": "",
+      "gui_client_hosts": "",
+      "gui_client_programs": "",
+      "gui_client_stations": "",
+      "gui_client_handles": "",
+      "min_software_version": "2.1.20.0",
+      "external_port_link": "1",
+      "license_is_unknown": "0"
+    }
+  }
+}

@@ -1,4 +1,7 @@
-# FlexRadio Discovery Proxy - Version 3.0 Configuration
+# FlexRadio Discovery Proxy - Version 3.0 Configuration Template
+#
+# This is a TEMPLATE file. Copy this to 'config.ini' and customize with your settings.
+# The actual 'config.ini' file is excluded from version control.
 #
 # This configuration file is for Version 3.0.0 of the FlexRadio Discovery Proxy
 # Version 3.0 uses socket-only mode (TCP streaming between server and client)
@@ -33,9 +36,11 @@ Max_Clients = 5
 
 # Server IP address for TCP connection
 # This should be the IP address of the server over your VPN connection
-# Example: 192.168.1.25 or 10.8.0.1
-Server_Address = 192.168.0.100
-#Server_Address = 192.168.1.22
+# Examples: 
+#   - Local network: 192.168.1.25
+#   - VPN connection: 10.8.0.1
+#   - Remote site: 172.16.0.50
+Server_Address = 10.0.0.100
 
 # TCP port to connect to server (must match server's Stream_Port)
 Stream_Port = 5992
